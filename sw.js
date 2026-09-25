@@ -11,7 +11,7 @@
    NOT schedule reminders. See README "Notifications".
    Bump VERSION when you change any file so phones pick up the update.
    ===================================================================== */
-const VERSION = 'planner-v3.2';
+const VERSION = 'planner-v3.3';
 const SHELL = ['./', 'index.html', 'planner.css', 'manifest.webmanifest',
   'js/schedule.js', 'js/tasks.js', 'js/notify.js', 'js/config.js', 'js/sync.js', 'js/ui.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];

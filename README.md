@@ -26,7 +26,7 @@ flexible_weekly_planner_v2.xlsx       v2 export template (no longer read by the 
 ## Turning on sync (one-time)
 
 1. Create a free project at supabase.com. In the SQL editor, run `supabase/migrations/001_init.sql`.
-2. Authentication → URL configuration: set the Site URL and Redirect URLs to where you host the app (e.g. `https://you.github.io/planner/`, plus `http://localhost:8000/` for testing).
+2. Authentication → URL configuration: set the Site URL and Redirect URLs to where you host the app (e.g. `https://you.github.io/planner/`, plus `http://localhost:9000/` for testing).
 3. Project Settings → API: copy the URL and the `anon` key into `js/config.js`.
 4. On each device: Settings → *Account and sync* → email yourself a link and open it **in the same browser/app**. Your existing data uploads on the first sign-in.
 
@@ -52,8 +52,8 @@ A service worker, installation and notifications need `http://localhost` or `htt
 
 ```bash
 cd ~/Desktop/planner
-python3 -m http.server 8000
-# open http://localhost:8000
+python3 -m http.server 9000
+# open http://localhost:9000
 ```
 
 ## Installing on your phone

@@ -17,7 +17,7 @@
    Device-only things (prefs, notifyLog) live in the `meta` store and
    never sync.
    ===================================================================== */
-const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 
 // ui.js state key → record collection
 const COLLS = { settings:'settings', categories:'category', customBlocks:'customBlock', overrides:'override', tasks:'task', blockDone:'blockDone' };
@@ -172,7 +172,7 @@ const Sync = {
     try { const { createClient } = await import(SUPABASE_JS); this.client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
     catch (e) { this.error = 'Offline: sync starts when you reconnect'; return this.onStatus(); }   // first load offline: CDN not reachable
     const { data } = await this.client.auth.getSession();
-    this.setUser(data.session?.user || null);
+    this.setUser(data.session?.user || null); this.onStatus();
     this.client.auth.onAuthStateChange((_, s) => this.setUser(s?.user || null));
   },
   setUser(u){
