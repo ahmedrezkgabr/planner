@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- theme-color follows the current block, so an installed app's status bar turns the block's color too -->
+<meta name="theme-color" content="#1F2A37" id="themeColor">
+<title>Planner</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Planner">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="planner.css">
+</head>
+<body>
+
+<!-- Persistent current-block indicator. Visible on every tab; tap it to open the dashboard. -->
+<button class="nowbar" id="nowbar" type="button" aria-live="polite" aria-label="Current block, open dashboard"></button>
+
+<div class="wrap" id="wrap">
+  <header>
+    <h1>Your week, with room in it</h1>
+    <p>Prayers, work and sleep are the anchors. Everything else is a chain that slides; the dashed blocks are the slack.</p>
+  </header>
+
+  <nav role="tablist" aria-label="Views">
+    <button role="tab" data-view="now" aria-selected="true">Now</button>
+    <button role="tab" data-view="day" aria-selected="false">Day</button>
+    <button role="tab" data-view="week" aria-selected="false">Week</button>
+    <button role="tab" data-view="tasks" aria-selected="false">Tasks<span class="badge" id="overdueBadge" hidden></span></button>
+    <button role="tab" data-view="budget" aria-selected="false">Budget</button>
+    <button role="tab" data-view="settings" aria-selected="false">Settings</button>
+  </nav>
+
+  <!-- NOW: current block, next block, tasks for this block, today's count, upcoming reminders -->
+  <section id="view-now">
+    <div class="dash">
+      <div class="card cur" id="dCur"></div>
+      <div class="card" id="dNext"></div>
+      <div class="card" id="dToday"></div>
+      <div class="card span">
+        <h3 id="dTasksTitle">Tasks for this block</h3>
+        <ul class="tlist" id="dTasks"></ul>
+        <div class="task-add"><input id="dTaskText" type="text" placeholder="Add a task to this block" maxlength="160" aria-label="New task for the current block"><button class="btn" id="dTaskAdd">Add</button></div>
+      </div>
+      <div class="card span">
+        <h3>Upcoming reminders</h3>
+        <div id="dNotifyState" class="muted"></div>
+        <ul class="rlist" id="dReminders"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-day" hidden>
+    <div class="days" id="days"></div>
+    <div class="dayhead"><h2 id="dayTitle"></h2><span id="daySub"></span>
+      <div class="toolbar"><button class="btn sm" id="editToggle" aria-pressed="false">Edit schedule</button><button class="btn sm" id="addBlock">+ Block</button></div>
+    </div>
+    <div class="stats" id="dayStats"></div>
+    <div class="tasks">
+      <div class="tasks-head"><h3 id="tasksTitle">Tasks</h3><span id="tasksCount"></span></div>
+      <ul class="tlist" id="taskList"></ul>
+      <div class="task-add">
+        <input id="taskText" type="text" placeholder="Add a task for this day" maxlength="160" aria-label="New task">
+        <select id="taskBlock" aria-label="Which block this task belongs to"></select>
+        <button class="btn" id="taskAdd">Add</button>
+      </div>
+      <button class="link" id="carry" hidden></button>
+    </div>
+    <div class="tl" id="tl"><div class="gutter" id="gutter"></div><div class="track" id="track"></div></div>
+    <p class="hint" id="dayHint">Tap a block to mark it done. Turn on <b>Edit schedule</b> to move, rename, recolor, duplicate or delete blocks. If something runs over, let it eat the next dashed block, not your sleep.</p>
+  </section>
+
+  <section id="view-week" hidden>
+    <div class="days" id="weekNav"></div>
+    <div class="week" id="week"></div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section id="view-tasks" hidden>
+    <div class="task-add">
+      <input id="quickText" type="text" placeholder="Quick add to the inbox" maxlength="160" aria-label="Quick add task">
+      <button class="btn" id="quickAdd">Add</button>
+      <button class="btn primary" id="newTask">New task…</button>
+    </div>
+    <div class="filters" id="filters" role="group" aria-label="Task views"></div>
+    <ul class="tlist" id="taskView"></ul>
+  </section>
+
+  <section id="view-budget" hidden>
+    <table>
+      <thead><tr><th>Category</th><th>Suggested h/wk</th><th>Planned h/wk</th><th>Diff</th></tr></thead>
+      <tbody id="budgetBody"></tbody>
+      <tfoot><tr><td>Total</td><td id="bT1"></td><td id="bT2"></td><td></td></tr></tfoot>
+    </table>
+    <div class="kpis" id="kpis"></div>
+    <p class="hint">Aim for hard buffer of at least 10% and total slack around 20–30%. Below that the plan is brittle; above 40% it isn't a plan. The startup and learning lengths in Settings are the dials.</p>
+  </section>
+
+  <section id="view-settings" hidden>
+    <fieldset>
+      <legend>Notifications</legend>
+      <div class="status" id="notifyStatus"></div>
+      <div class="row"><button class="btn primary" id="notifyEnable">Turn on notifications</button><button class="btn" id="notifyOff">Turn off</button><button class="btn" id="notifyTest">Send a test</button></div>
+      <p class="hint">In-app reminders work while the planner is open: a tab (even in the background), or the installed app while your phone keeps it running. Phones pause web apps after a few minutes in the background or with the screen locked. For reminders that always fire, use <b>calendar reminders</b> below.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Block types, colors and reminders</legend>
+      <p>The color is used everywhere: timeline, now-bar, task labels, notifications, Excel. Lead = minutes before the block starts.</p>
+      <div class="cats" id="cats"></div>
+      <div class="row" style="margin-top:10px"><input id="newCatName" type="text" placeholder="New block type, e.g. Meeting" maxlength="30" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;flex:1 1 180px"><input id="newCatColor" type="color" value="#F4B183" aria-label="Color"><button class="btn" id="newCatAdd">Add type</button></div>
+      <datalist id="leads"><option value="5"><option value="10"><option value="15"><option value="30"></datalist>
+    </fieldset>
+
+    <fieldset>
+      <legend>Calendar reminders (planner closed, phone locked)</legend>
+      <p>Exports your blocks (only types with reminders on) as a calendar file with alarms. Import it into your phone's calendar and the calendar app reminds you, offline, with no server. Re-export when the plan changes, for example in the Saturday weekly review.</p>
+      <div class="row"><label class="muted">Days <input id="icsDays" type="number" min="1" max="60" value="14" style="width:64px;padding:6px;border:1px solid var(--line);border-radius:6px"></label><button class="btn" id="icsExport">Export calendar (.ics)</button></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Excel and backup</legend>
+      <p>Your data lives on this device (<span id="storeMode"></span>). Export to Excel to back it up, edit it in Excel, or move it to another device. Importing merges tasks and replaces the schedule sheets it finds. Your original workbook also imports (settings only).</p>
+      <div class="row"><button class="btn primary" id="xlsExport">Export to Excel</button><button class="btn" id="xlsImport">Import from Excel…</button><input type="file" id="xlsFile" accept=".xlsx" hidden><span class="saved" id="lastBackup"></span></div>
+    </fieldset>
+
+    <div id="settingsForm"></div>
+    <div class="row"><button class="btn" id="reset">Reset to the original plan</button><button class="btn" id="resetEdits">Remove all block edits</button><span class="saved" id="savedNote"></span></div>
+  </section>
+</div>
+
+<!-- Block editor -->
+<dialog id="blockDlg">
+  <form method="dialog" class="dlg" id="blockForm">
+    <h3 id="bdTitle">Edit block</h3>
+    <label>Name <input name="name" required maxlength="80"></label>
+    <label>Block type <select name="cat"></select></label>
+    <div class="two"><label>Start <input type="time" name="start" required></label><label>End <input type="time" name="end" required></label></div>
+    <label>Note <input name="note" maxlength="240"></label>
+    <div class="inline" id="bdScope"></div>
+    <div id="bdDays"><div class="muted" style="font-size:13px">Repeat on (none = only this date)</div><div class="inline" id="bdDaysBoxes"></div></div>
+    <p class="hint" id="bdHint"></p>
+    <div class="row">
+      <button class="btn primary" value="save">Save</button>
+      <button class="btn" value="dup" formnovalidate id="bdDup">Duplicate</button>
+      <button class="btn" value="reset" formnovalidate id="bdReset">Undo edits</button>
+      <button class="btn danger" value="delete" formnovalidate id="bdDelete">Delete</button>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Task editor -->
+<dialog id="taskDlg">
+  <form method="dialog" class="dlg" id="taskForm">
+    <h3 id="tdTitle">Task</h3>
+    <label>Title <input name="title" required maxlength="160"></label>
+    <label>Notes <textarea name="notes" rows="2" maxlength="2000"></textarea></label>
+    <div class="two"><label>Priority <select name="priority"></select></label><label>Status <select name="status"></select></label></div>
+    <div class="two"><label>Due date <input type="date" name="due"></label><label>Estimate (min) <input type="number" name="estimate" min="0" step="5" inputmode="numeric"></label></div>
+    <label>Category <input name="category" list="taskCats" maxlength="40"></label><datalist id="taskCats"></datalist>
+    <label>Connect to
+      <select name="linkType">
+        <option value="none">Nothing yet (task inbox)</option>
+        <option value="block">One specific block</option>
+        <option value="cat">Every block of a type</option>
+        <option value="day">A day</option>
+        <option value="period">Part of a day</option>
+      </select>
+    </label>
+    <div class="two">
+      <label data-for="block day period">Date <input type="date" name="linkDate"></label>
+      <label data-for="block">Block <select name="linkBlock"></select></label>
+      <label data-for="cat">Block type <select name="linkCat"></select></label>
+      <label data-for="period">Part of day <select name="linkPeriod"><option value="morning">Morning (5–12)</option><option value="afternoon">Afternoon (12–17)</option><option value="evening">Evening (17–24)</option></select></label>
+    </div>
+    <div class="inline" data-for="cat"><label><input type="checkbox" name="repeat"> Routine: a fresh checkbox in every block of this type (e.g. warm-up)</label></div>
+    <div class="row">
+      <button class="btn primary" value="save">Save</button>
+      <button class="btn danger" value="delete" formnovalidate id="tdDelete">Delete</button>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<!-- Load order matters: logic first (no DOM), then UI. Plain scripts, not modules, so the page still opens by double-click. -->
+<script src="js/schedule.js"></script>
+<script src="js/tasks.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/store.js"></script>
+<script src="js/excel.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

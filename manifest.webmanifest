@@ -1,0 +1,16 @@
+{
+  "name": "Flexible weekly planner",
+  "short_name": "Planner",
+  "description": "What am I supposed to be doing right now, what's next, and which tasks belong to it.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FBFBF8",
+  "theme_color": "#1F2A37",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
