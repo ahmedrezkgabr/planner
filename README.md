@@ -1,4 +1,4 @@
-# Flexible weekly planner, v2
+# Flexible weekly planner, v3 (in progress: see SPEC.md §15 for the build order)
 
 The main screen answers three questions: **what should I be doing now, what's next, and which tasks belong to it.**
 
@@ -8,23 +8,27 @@ planner.css             styles (original + now-bar, dashboard, tasks, dialogs)
 js/schedule.js          schedule engine: chain, overrides, custom blocks, current/next   (no DOM)
 js/tasks.js             task model, views, overdue logic, migration                     (no DOM)
 js/notify.js            reminder logic (dedupe), calendar (.ics) export
-js/store.js             IndexedDB persistence (localStorage fallback)
-js/excel.js             Excel import/export (ExcelJS, vendored in vendor/)
+js/config.js            Supabase URL + anon key (empty = local-only)
+js/sync.js              local IndexedDB records + Supabase sync (last write wins), JSON backup
+supabase/migrations/    database schema: run 001_init.sql once
 js/ui.js                rendering, dialogs, reminder tick, boot
 sw.js, manifest.webmanifest, icons/   PWA: offline, installable, Android notifications
 tests/check.js          logic self-check:  node tests/check.js
 flexible_weekly_planner.html          your original, untouched (backup)
 flexible_weekly_planner.xlsx          your original, untouched
-flexible_weekly_planner_v2.xlsx       original + Categories/Blocks/Overrides/Tasks/BlockDone sheets
+flexible_weekly_planner_v2.xlsx       v2 export template (no longer read by the app)
 ```
 
 ## Architecture
 
-**Local-first PWA. IndexedDB holds the live data. Excel is for import/export, backup and reporting (option B/C). Calendar export handles closed-app reminders.** No server, no account, no cost.
+**Local-first PWA with Supabase sync.** Every edit is saved to IndexedDB first, so the app works offline. When you're signed in, changes upload about a second later, and the other device receives them live. If both devices change the same thing, the later edit wins. Deletes sync too. Excel has been removed: *Settings → Download backup* gives you a JSON file of everything.
 
-- A browser page can't keep an .xlsx file open and write to it live. It also can't read one from your phone in the background. So Excel can't be the live database behind notifications. The workbook stays fully usable: its formula sheets are untouched, it imports into the app, and every app export can be opened, edited and imported again.
-- The schedule is still **generated** from your settings (prayer times, wake/bed, block lengths). Edits are stored as **overrides** on top ("only this Tuesday" or "every Tuesday"), and **custom blocks** sit on top of the chain. Change prayer times and everything still slides, and your edits survive.
-- Every record has an id and `updatedAt`, which is the groundwork for laptop↔phone sync, Google/Outlook calendar integration, statistics (`blockDone` = planned vs done) and cloud backup later.
+## Turning on sync (one-time)
+
+1. Create a free project at supabase.com. In the SQL editor, run `supabase/migrations/001_init.sql`.
+2. Authentication → URL configuration: set the Site URL and Redirect URLs to where you host the app (e.g. `https://you.github.io/planner/`, plus `http://localhost:8000/` for testing).
+3. Project Settings → API: copy the URL and the `anon` key into `js/config.js`.
+4. On each device: Settings → *Account and sync* → email yourself a link and open it **in the same browser/app**. Your existing data uploads on the first sign-in.
 
 ## Notifications: what's actually possible
 
@@ -59,7 +63,7 @@ The phone needs the app over **HTTPS**. Host the folder on any free static host.
 - **Android (Chrome):** open the URL → ⋮ → *Install app*.
 - **iPhone (Safari, iOS 16.4+):** Share → *Add to Home Screen*, then open it **from the Home Screen icon** (notifications only work there).
 
-The phone and laptop keep **separate data**. To move data between them, use *Export to Excel* on one and *Import* on the other. Tasks merge by id (newer wins).
+Sign in on both devices and they share the same data.
 
 ## Enabling notifications
 
@@ -71,18 +75,9 @@ The phone and laptop keep **separate data**. To move data between them, use *Exp
    - Re-export in the Saturday weekly review, or whenever you change the plan.
 4. Android: turn off battery optimisation for Chrome (or the installed app) so the open app is paused less often.
 
-## Excel format
-
-`Settings` keeps **the same cells as your original** (B5 = Fajr ... B45 = gym slot), so values can be pasted in either direction. New sheets: `Categories` (key, label, color hex, reminder, lead), `Blocks` (your blocks: days like `Sun,Tue` or one date), `Overrides` (scope `weekly`/`date`, block id, changed fields, hidden), `Tasks` (all fields, with dropdowns for priority/status/link type), `BlockDone`, and `Schedule` (a colored 2-week report; export only). Times are Excel times (hh:mm). Dates are `YYYY-MM-DD`.
-
-Typing tasks in Excel: `Title` + `Link type = Block` + `Link date` + `Link block name` (e.g. `Gym`) is enough. The app finds the block id.
-Import replaces the schedule sheets it finds and **merges** tasks, and it **downloads a backup of your current data first**.
-
 ## Migrating your current data
 
-- **Settings in your Excel:** Settings → *Import from Excel…* → pick `flexible_weekly_planner.xlsx`.
-- **Tasks and done ticks from the old HTML planner:** these were in the browser's localStorage. They are migrated automatically on first launch **if the new app opens at the same address** as the old one. Example: if you opened the old file by double-click, open the new `index.html` by double-click in the same browser once, then *Export to Excel*. Then open the served version (localhost or your phone) and *Import*. If you used the old planner as a Claude artifact, its storage can't be reached. Only settings carry over (from the Excel file).
-- Old data is never deleted.
+The first time v3 opens at the same address as v2, it copies v2's data (settings, block types, edits, tasks, done ticks) into the new store, and it uploads on the first sign-in. The v2 database is left untouched. The migration from the original single-file HTML planner has been removed.
 
 ## Testing checklist
 
@@ -93,11 +88,11 @@ Import replaces the schedule sheets it finds and **merges** tasks, and it **down
 - [ ] Turn a block type's reminder off: no notification
 - [ ] Day → *Edit schedule* → move Lunch: the following blocks slide and prayers stay put. Try "Only this date" and "Every Sunday"
 - [ ] *+ Block*: recurring on weekdays, one-off, one crossing midnight (23:30–00:30). *Duplicate*, *Delete*, *Undo edits*
-- [ ] Rename a block type and change its color: timeline, week, now-bar, task labels and Excel all update
+- [ ] Rename a block type and change its color: timeline, week, now-bar and task labels all update
 - [ ] Tasks: create one for each link type; a routine "every Gym" task resets in each Gym block
 - [ ] Let a block-linked task pass its block: it shows under *Overdue* with all five options
-- [ ] Export Excel → edit a task in Excel → import: the change arrives, and a backup file downloaded first
-- [ ] Import the original `flexible_weekly_planner.xlsx`: settings are applied
+- [ ] Signed in on two devices: add a task on one and it appears on the other within seconds. Airplane mode: edit, reconnect, and it syncs
+- [ ] Download backup → Import backup: nothing is duplicated
 - [ ] Close and reopen the browser: everything is still there. Settings shows "IndexedDB, protected from clean-up"
 - [ ] Airplane mode on an installed phone app: it still opens and works
 - [ ] At 00:30 the now-bar shows last night's Sleep
@@ -107,6 +102,6 @@ Import replaces the schedule sheets it finds and **merges** tasks, and it **down
 
 - Reminders need the app open, or the .ics export (see the table above).
 - Custom blocks that overlap the chain count twice in the Budget totals.
-- Excel import doesn't delete tasks that were deleted on the other device. Sync with tombstones would fix that later.
+- Conflicts are decided by each device's clock. If a device's clock is badly wrong, its edits win or lose incorrectly.
 - Moving a block later leaves a gap before it, shown as "Nothing scheduled".
 - After changing app files, bump `VERSION` in `sw.js` so installed phones update.

@@ -9,7 +9,7 @@
 let plan = emptyPlan();
 let tasks = [];
 let blockDone = {};                 // { 'YYYY-MM-DD': [blockId] }  (was: block indexes, which broke when blocks moved)
-let prefs = { notify:false, lastExport:null, migrated:false };
+let prefs = { notify:false, lastExport:null };
 let notifyLog = {};                 // { reminderKey: firedAtMs }
 let selected = new Date().getDay(), weekOffset = 0, editMode = false, taskFilter = 'now';
 let lastIso = isoDate(new Date()), dashSig = '', curKey = '', version = 0;
@@ -30,12 +30,20 @@ const dateFor = idx => addDays(new Date(), idx - todayIdx() + 7*weekOffset);
 const dayLabel = iso => parseISO(iso).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
 const touch = t => { t.updatedAt = new Date().toISOString(); };
 
-/* ---------- persistence ---------- */
-const COLLECTIONS = ['settings','categories','customBlocks','overrides','tasks','blockDone','prefs','notifyLog'];
-const dataOf = k => ({ settings:plan.settings, categories:plan.categories, customBlocks:plan.customBlocks, overrides:plan.overrides, tasks, blockDone, prefs, notifyLog })[k];
+/* ---------- persistence (sync.js) ----------
+   Synced: the plan, tasks and done ticks. Device-only: prefs and the reminder log. */
+const stateOf = () => ({ settings:plan.settings, categories:plan.categories, customBlocks:plan.customBlocks, overrides:plan.overrides, tasks, blockDone });
 async function save(...keys){
-  try { for (const k of keys) await DB.set(k, dataOf(k)); $('savedNote').textContent = DB.mode === 'memory' ? 'Saved for this session only' : 'Saved'; }
-  catch (e) { toast('Could not save: ' + e.message); }
+  try {
+    await Sync.save(keys, stateOf());
+    if (keys.includes('prefs')) await Sync.setMeta('prefs', prefs);
+    if (keys.includes('notifyLog')) await Sync.setMeta('notifyLog', notifyLog);
+    $('savedNote').textContent = Sync.mode === 'memory' ? 'Saved for this session only' : 'Saved';
+  } catch (e) { toast('Could not save: ' + e.message); }
+}
+function load(st){
+  plan.settings = st.settings; plan.categories = st.categories; plan.customBlocks = st.customBlocks; plan.overrides = st.overrides;
+  tasks = st.tasks; blockDone = st.blockDone;
 }
 function changed(...keys){ version++; save(...keys); renderAll(); }
 
@@ -558,38 +566,42 @@ $('icsExport').onclick = () => {
   const days = Math.max(1, Math.min(60, Number($('icsDays').value) || 14)), from = new Date(); from.setHours(0, 0, 0, 0);
   download(buildICS(plan, from, days), `planner_reminders_${isoDate(from)}.ics`, 'text/calendar');
 };
-async function doExport(suffix = ''){
-  const buf = await exportExcel(plan, tasks, blockDone);
-  download(buf, `planner_${isoDate(new Date())}${suffix}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+$('jsonExport').onclick = () => {
+  download(Sync.backup(), `planner_${isoDate(new Date())}.json`, 'application/json');
   prefs.lastExport = new Date().toISOString(); save('prefs'); renderBackup();
-}
-$('xlsExport').onclick = () => doExport().catch(e => alert('Export failed: ' + e.message));
-$('xlsImport').onclick = () => $('xlsFile').click();
-$('xlsFile').onchange = async e => {
+};
+$('jsonImport').onclick = () => $('jsonFile').click();
+$('jsonFile').onchange = async e => {
   const file = e.target.files[0]; e.target.value = ''; if (!file) return;
-  try {
-    const r = await importExcel(await file.arrayBuffer(), plan);
-    if (!r.found.length) return alert('No planner sheets (Settings, Categories, Blocks, Overrides, Tasks, BlockDone) in that file.');
-    const lines = [r.settings && 'Settings: replaced', r.categories && `Block types: ${Object.keys(r.categories).length} (updated)`,
-      r.customBlocks && `Your blocks: ${r.customBlocks.length} (replaces the current ${plan.customBlocks.length})`, r.overrides && 'Block edits: replaced',
-      r.tasks && `Tasks: ${r.tasks.length} merged by id (newer wins, tasks only on this device are kept)`, r.blockDone && 'Done ticks: merged'].filter(Boolean);
-    if (!confirm(`Import ${file.name}?\n\n${lines.join('\n')}\n\nA backup of your current data downloads first.`)) return;
-    await doExport('_before-import');
-    if (r.settings) plan.settings = { ...plan.settings, ...r.settings };
-    if (r.categories) plan.categories = { ...plan.categories, ...r.categories };
-    if (r.customBlocks) plan.customBlocks = r.customBlocks;
-    if (r.overrides) plan.overrides = r.overrides;
-    if (r.tasks) tasks = mergeTasks(tasks, r.tasks);
-    if (r.blockDone) for (const [d, ids] of Object.entries(r.blockDone)) blockDone[d] = [...new Set([...(blockDone[d] || []), ...ids])];
-    changed(...COLLECTIONS); renderSettings();
-    toast('Imported ' + r.found.join(', '));
-    if (r.warnings.length) alert('Imported with notes:\n\n' + r.warnings.slice(0, 20).join('\n'));
-  } catch (err) { alert('Import failed: ' + err.message); }
+  if (!confirm(`Import ${file.name}? Records newer than yours replace them; nothing newer on this device is lost.`)) return;
+  try { const n = await Sync.restore(await file.text()); load(Sync.state()); renderSettings(); renderAll(); toast(`Imported ${n} change${n === 1 ? '' : 's'}`); }
+  catch (err) { alert('Import failed: ' + err.message); }
 };
 function renderBackup(){
-  $('storeMode').textContent = { indexeddb:'IndexedDB' + (DB.persisted ? ', protected from clean-up' : ''), localstorage:'browser storage', memory:'memory only: nothing is saved!' }[DB.mode];
+  $('storeMode').textContent = { indexeddb:'IndexedDB' + (Sync.persisted ? ', protected from clean-up' : ''), memory:'memory only: nothing is saved!' }[Sync.mode];
   $('lastBackup').textContent = prefs.lastExport ? 'Last export ' + new Date(prefs.lastExport).toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : 'Never exported';
+  renderAccount();
 }
+
+// Account & sync
+function renderAccount(){
+  const on = Sync.configured(), u = Sync.user, n = Sync.pending();
+  $('acctOut').hidden = !on || !!u; $('acctIn').hidden = !u;
+  let msg, cls = '';
+  if (!on) msg = 'Sync isn’t set up: data stays on this device. Fill in js/config.js to turn it on (see README).';
+  else if (!Sync.client) msg = Sync.error || 'Connecting…';
+  else if (!u) msg = 'Signed out. Everything is saved on this device and uploads when you sign in.';
+  else if (Sync.error) { msg = 'Sync problem: ' + Sync.error + (n ? ` (${n} change${n > 1 ? 's' : ''} waiting)` : ''); cls = 'bad'; }
+  else { msg = `Signed in as ${u.email}. ` + (n ? `${n} change${n > 1 ? 's' : ''} waiting to upload.` : 'All synced' + (Sync.meta.lastSync ? ', ' + new Date(Sync.meta.lastSync).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '') + '.'); cls = 'ok'; }
+  $('acctStatus').textContent = msg; $('acctStatus').className = 'status ' + cls;
+}
+$('acctSend').onclick = async () => {
+  const email = $('acctEmail').value.trim(); if (!email) return;
+  const { error } = await Sync.signIn(email);
+  toast(error ? 'Could not send: ' + error.message : 'Check your email for the sign-in link', null, 6000);
+};
+$('acctSync').onclick = () => Sync.syncNow();
+$('acctSignOut').onclick = () => Sync.signOut();
 
 /* ---------- navigation ---------- */
 const VIEWS = ['now','day','week','tasks','budget','settings'];
@@ -639,26 +651,18 @@ window.addEventListener('focus', () => tick(true));
 
 /* ---------- boot ---------- */
 (async () => {
-  await DB.open();
-  const [s, c, cb, ov, t, bd, p, nl] = await Promise.all(COLLECTIONS.map(k => DB.get(k).catch(() => null)));
-  if (s) plan.settings = { ...DEFAULTS, ...s };
-  if (c) plan.categories = { ...structuredClone(DEFAULT_CATEGORIES), ...c };
-  if (cb) plan.customBlocks = cb;
-  if (ov) plan.overrides = { weekly:{}, dated:{}, ...ov };
-  if (t) tasks = t;
-  if (bd) blockDone = bd;
-  if (p) prefs = { ...prefs, ...p };
-  if (nl) notifyLog = nl;
+  await Sync.open();
+  const migrated = await Sync.migrateV2();
+  load(Sync.state());
+  prefs = { ...prefs, ...(Sync.meta.prefs || {}) };
+  notifyLog = Sync.meta.notifyLog || {};
+  if (migrated) toast('Brought over your data from the previous version.');
 
-  // First run: bring over the original planner's data if it lives in this browser under the same address.
-  if (!prefs.migrated){
-    const legacy = DB.legacyEntries(), ls = legacy.find(([k]) => k === 'settings');
-    if (ls && !s) plan.settings = { ...DEFAULTS, ...ls[1] };
-    const m = migrateLegacy(plan, legacy);
-    tasks.push(...m.tasks); Object.assign(blockDone, m.blockDone);
-    prefs.migrated = true; await save(...COLLECTIONS);
-    if (legacy.length) toast(`Brought over your old planner: settings${m.tasks.length ? ` and ${m.tasks.length} tasks` : ''}.`);
-  }
+  Sync.onRemote = st => { load(st); version++; renderAll(); if (!$('view-settings').hidden) renderSettings(); };
+  Sync.onStatus = renderAccount;
+  Sync.connect();
+  window.addEventListener('online', () => Sync.syncNow());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') Sync.syncNow(); });
 
   // Service worker: offline use, installability, notifications on Android.
   if ('serviceWorker' in navigator && isSecureContext && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});

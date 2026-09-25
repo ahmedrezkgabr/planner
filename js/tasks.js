@@ -110,23 +110,3 @@ function linkLabel(t, plan){
   return { text:'Inbox' };
 }
 
-/* ---------- migration from the original planner's localStorage ----------
-   Old data: "tasks:YYYY-MM-DD" = [{id,text,block(name),done}], "done:YYYY-MM-DD" = [block index].
-   Old block links were by name; they become links to that date's block with the same name. */
-function migrateLegacy(plan, entries){
-  const tasks = [], blockDone = {};
-  const baseName = n => n.replace(/, part \d$/, '');
-  for (const [k, v] of entries){
-    const iso = k.slice(k.indexOf(':') + 1);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || !Array.isArray(v)) continue;
-    const blocks = buildDay(plan, parseISO(iso)).filter(b => !b.custom);
-    if (k.startsWith('tasks:')) for (const o of v){
-      const b = o.block && blocks.find(x => baseName(x.name) === o.block);
-      tasks.push(newTask({ title:String(o.text || ''), status:o.done ? 'Completed' : 'Not started', completedAt:o.done ? atMinISO(iso) : null,
-                           link: b ? {type:'block', date:iso, blockId:b.id} : {type:'day', date:iso} }));
-    }
-    if (k.startsWith('done:')) blockDone[iso] = v.map(i => blocks[i] && blocks[i].id).filter(Boolean);
-  }
-  return { tasks, blockDone };
-}
-const atMinISO = iso => new Date(atMin(iso, 720)).toISOString();

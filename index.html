@@ -110,7 +110,7 @@
 
     <fieldset>
       <legend>Block types, colors and reminders</legend>
-      <p>The color is used everywhere: timeline, now-bar, task labels, notifications, Excel. Lead = minutes before the block starts.</p>
+      <p>The color is used everywhere: timeline, now-bar, task labels, notifications. Lead = minutes before the block starts.</p>
       <div class="cats" id="cats"></div>
       <div class="row" style="margin-top:10px"><input id="newCatName" type="text" placeholder="New block type, e.g. Meeting" maxlength="30" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;flex:1 1 180px"><input id="newCatColor" type="color" value="#F4B183" aria-label="Color"><button class="btn" id="newCatAdd">Add type</button></div>
       <datalist id="leads"><option value="5"><option value="10"><option value="15"><option value="30"></datalist>
@@ -123,9 +123,17 @@
     </fieldset>
 
     <fieldset>
-      <legend>Excel and backup</legend>
-      <p>Your data lives on this device (<span id="storeMode"></span>). Export to Excel to back it up, edit it in Excel, or move it to another device. Importing merges tasks and replaces the schedule sheets it finds. Your original workbook also imports (settings only).</p>
-      <div class="row"><button class="btn primary" id="xlsExport">Export to Excel</button><button class="btn" id="xlsImport">Import from Excel…</button><input type="file" id="xlsFile" accept=".xlsx" hidden><span class="saved" id="lastBackup"></span></div>
+      <legend>Account and sync</legend>
+      <div class="status" id="acctStatus"></div>
+      <div class="row" id="acctOut" hidden><input id="acctEmail" type="email" placeholder="you@example.com" autocomplete="email" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;flex:1 1 200px"><button class="btn primary" id="acctSend">Email me a sign-in link</button></div>
+      <div class="row" id="acctIn" hidden><button class="btn" id="acctSync">Sync now</button><button class="btn" id="acctSignOut">Sign out</button></div>
+      <p class="hint">Your phone and laptop share the same data once both are signed in. Edits made offline upload when you reconnect; if both devices changed the same thing, the later edit wins.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Backup</legend>
+      <p>Your data lives on this device (<span id="storeMode"></span>) and in your account when signed in. A backup file holds everything; importing it merges (newer wins).</p>
+      <div class="row"><button class="btn primary" id="jsonExport">Download backup</button><button class="btn" id="jsonImport">Import backup…</button><input type="file" id="jsonFile" accept=".json,application/json" hidden><span class="saved" id="lastBackup"></span></div>
     </fieldset>
 
     <div id="settingsForm"></div>
@@ -193,8 +201,8 @@
 <script src="js/schedule.js"></script>
 <script src="js/tasks.js"></script>
 <script src="js/notify.js"></script>
-<script src="js/store.js"></script>
-<script src="js/excel.js"></script>
+<script src="js/config.js"></script>
+<script src="js/sync.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>

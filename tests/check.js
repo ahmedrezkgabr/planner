@@ -1,8 +1,8 @@
 // Logic self-check: node tests/check.js  (no dependencies)
 process.env.TZ = 'Africa/Cairo';
 const fs = require('fs'), vm = require('vm'), path = require('path'), assert = require('assert');
-const ctx = vm.createContext({ console, structuredClone, Date, Math, JSON, Number, String, Set, Map, Array, Object });
-for (const f of ['schedule.js', 'tasks.js', 'notify.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'), ctx);
+const ctx = vm.createContext({ console, structuredClone, Date, Math, JSON, Number, String, Set, Map, Array, Object, setTimeout, clearTimeout });
+for (const f of ['schedule.js', 'tasks.js', 'notify.js', 'sync.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'), ctx);
 const run = code => vm.runInContext(code, ctx);
 const at = (iso, hhmm) => run(`atMin('${iso}', toMin('${hhmm}'))`);
 ctx.plan = run('emptyPlan()');
@@ -61,13 +61,38 @@ ctx.t2 = run(`newTask({ title:'Warm-up', link:{ type:'cat', cat:'Gym' } })`);
 ctx.ms = at('2026-09-27', '16:45');
 assert.deepEqual(run('tasksForNow([t, t2], status(plan, ms), ms).map(x => x.title)'), ['Warm-up']);
 
-// Migration from the original planner's localStorage format.
-const m = run(`migrateLegacy(emptyPlan(), [['tasks:2026-09-20', [{ id:1, text:'Buy protein', block:'Gym', done:false }, { id:2, text:'Call mum', block:null, done:true }]], ['done:2026-09-20', [0, 9]]])`);
-assert.equal(m.tasks[0].link.blockId, 'Sun:gym'); assert.equal(m.tasks[1].link.type, 'day'); assert.equal(m.tasks[1].status, 'Completed');
-assert.deepEqual(m.blockDone['2026-09-20'], ['Sun:fajr', 'Sun:gym']);
-
 // Calendar export has the gym event with a 10-minute alarm.
 const ics = run(`buildICS(plan, parseISO('2026-09-20'), 1)`);
 assert.ok(/SUMMARY:Gym\r\n[\s\S]*?TRIGGER:-PT10M/.test(ics)); assert.ok(!ics.includes('SUMMARY:Spare'));
 
-console.log('all checks passed');
+// Sync: state -> records -> state round-trips, including dated overrides on ids with colons.
+run(`plan.overrides.dated['2026-09-27'] = { 'Sun:gym': { start: toMin('17:00') } }`);
+ctx.state = { settings:ctx.plan.settings, categories:ctx.plan.categories, customBlocks:ctx.plan.customBlocks, overrides:ctx.plan.overrides,
+              tasks:[ctx.t, ctx.t2], blockDone:{ '2026-09-20':['Sun:fajr', 'Sun:gym'] } };
+const recs = run(`Object.entries(COLLS).flatMap(([k, c]) => Object.entries(toRecords(k, state[k])).map(([id, data]) => ({ collection:c, id, data })))`);
+assert.ok(recs.some(r => r.id === 'd:2026-09-27:Sun:gym'));
+ctx.recs = recs;
+assert.deepEqual(JSON.parse(JSON.stringify(run('toState(recs)'))), JSON.parse(JSON.stringify(ctx.state)));
+assert.deepEqual(run(`toState(recs.map(r => r.id === t.id ? { ...r, deleted:true, data:null } : r)).tasks.map(x => x.title)`), ['Warm-up'], 'tombstone drops the task');
+
+// Last write wins; a tie keeps the local copy.
+const W = (a, b, dirty) => run(`wins({ updated_at:'${a}' }, { updated_at:'${b}', dirty:${dirty} })`);
+assert.equal(W('2026-09-26T10:00:01Z', '2026-09-26T10:00:00Z', true), true, 'newer remote wins');
+assert.equal(W('2026-09-26T10:00:00Z', '2026-09-26T10:00:01Z', false), false, 'older remote loses');
+assert.equal(W('2026-09-26T10:00:00.000+00:00', '2026-09-26T10:00:00.000Z', false), false, 'same instant, other format: no-op');
+assert.equal(run(`wins({ updated_at:'2026-09-26T10:00:00Z' }, undefined)`), true);
+
+// save() diffs: unchanged state writes nothing, a removed task becomes a dirty tombstone.
+(async () => {
+  await run('Sync.save(Object.keys(COLLS), state)');
+  assert.equal(run('Sync.pending()'), recs.length);
+  run('for (const r of Sync.recs.values()) r.dirty = false');
+  await run('Sync.save(Object.keys(COLLS), state)');
+  assert.equal(run('Sync.pending()'), 0, 'no-op save');
+  run('state.tasks = [t2]');
+  await run(`Sync.save(['tasks'], state)`);
+  const tomb = run('Sync.recs.get("task|" + t.id)');
+  assert.equal(tomb.deleted, true); assert.equal(tomb.dirty, true); assert.equal(run('Sync.pending()'), 1);
+  run('clearTimeout(Sync.timer)');
+  console.log('all checks passed');
+})().catch(e => { console.error(e); process.exit(1); });
