@@ -7,12 +7,13 @@ index.html              app shell (open this)
 planner.css             styles (original + now-bar, dashboard, tasks, dialogs)
 js/schedule.js          schedule engine: chain, overrides, custom blocks, current/next   (no DOM)
 js/tasks.js             task model, views, overdue logic, migration                     (no DOM)
-js/notify.js            reminder logic (dedupe), calendar (.ics) export
+js/notify.js            materialize() (next 14 days of blocks for the push server), this device's push subscription
 js/config.js            Supabase URL + anon key (empty = local-only)
 js/sync.js              local IndexedDB records + Supabase sync (last write wins), JSON backup
 supabase/migrations/    database schema: run 001_init.sql once
-js/ui.js                rendering, dialogs, reminder tick, boot
-sw.js, manifest.webmanifest, icons/   PWA: offline, installable, Android notifications
+js/ui.js                rendering, dialogs, the 15 s now-bar tick, boot
+sw.js, manifest.webmanifest, icons/   PWA: offline, installable, shows push reminders
+supabase/functions/tick/   edge function: sends due reminders as Web Push (pg_cron, every minute)
 tests/check.js          logic self-check:  node tests/check.js
 flexible_weekly_planner.html          your original, untouched (backup)
 flexible_weekly_planner.xlsx          your original, untouched
@@ -30,21 +31,20 @@ flexible_weekly_planner_v2.xlsx       v2 export template (no longer read by the 
 3. Project Settings → API: copy the URL and the `anon` key into `js/config.js`.
 4. On each device: Settings → *Account and sync* → email yourself a link and open it **in the same browser/app**. Your existing data uploads on the first sign-in.
 
-## Notifications: what's actually possible
+## Reminders
 
-| Option | Tab closed | Browser closed | Phone locked | Internet | Complexity | Privacy | Cost | Reliability |
-|---|---|---|---|---|---|---|---|---|
-| 1. Browser notifications (page JS) | No | No | No | No | Low | Full | Free | Only while open. Background tabs are OK on desktop; phones pause the page within minutes. |
-| 2. PWA + service worker | No* | No | No | No | Low | Full | Free | Same as 1, plus it installs, works offline and shows notifications on Android. A service worker can't run timers. |
-| 3. PWA + Web Push | Yes | Android yes; desktop needs the browser running | Yes (Android; iOS 16.4+ if installed) | Yes | Medium to high: server + scheduler + VAPID keys | Block times go to your server | Free tier possible (e.g. Cloudflare Workers cron) | Good, but depends on the server and push service |
-| 4. Native wrapper (Capacitor + local notifications) | Yes | n/a | Yes | No | High: Android Studio; iOS needs a $99/yr developer account | Full | Free (Android) | Best |
-| 5. Cloud service / **phone calendar (.ics)** | Yes | Yes | Yes | No (after import) | **Very low** | Full (the file never leaves your devices) | Free | Very good, but a snapshot: re-export when the plan changes |
+Reminders are **Web Push sent by Supabase**, so they arrive with the planner closed and the phone locked (Android, desktop, and iPhone 16.4+ from the Home Screen app).
 
-\* Periodic Background Sync runs at most about every 12 h, at the browser's discretion. The "Notification Triggers" scheduling API was never shipped. Neither can give a reminder 5 minutes before a block.
+- Whenever the plan changes (and at least every 6 h while any device is open), the app uploads the next 14 days of blocks to `occurrences`, with `remind_at = start − lead` for block types that have reminders on. Only changed rows are sent, and removed blocks are marked deleted.
+- A pg_cron job calls the `tick` edge function every minute. It claims the due rows (`sent_at`, so nothing is sent twice) and pushes them to every device in `push_subs`. A reminder more than 5 min late is skipped rather than sent stale. A device that unsubscribed (404/410) is removed.
+- A moved block gets a new `remind_at`, so it reminds again. Renaming a block doesn't.
+- The server never runs the schedule engine. If no device opens the app for 14 days, reminders run out. Settings shows "Scheduled until …".
 
-**What's implemented:** 1 + 2 (in-app and system notifications while the planner is open) **plus** the .ics calendar export for everything else. That fits "simple, local-first, private, inexpensive." If you later want reminders that follow live edits with the app closed, the upgrade is **3** (a small push server). The reminder logic in `notify.js` would move to the server largely unchanged.
-
-Reminder rules: it fires once when `now ≥ start − lead` and before the start. It is deduped by a persisted log (surviving refresh, reopen and several tabs), and only one tab sends. A moved block gets a fresh reminder. If the app was asleep past the start time, it stays silent (no stale alerts). Midnight, date and time zone changes are handled because everything is recomputed from the clock every 15 s with absolute timestamps. When blocks overlap, your own (custom) block wins, then the later-starting one.
+### Server setup (one-time)
+1. SQL editor: run `supabase/migrations/002_reminders.sql`.
+2. Edge Functions → deploy `supabase/functions/tick/index.ts` as a function named **tick**, with **JWT verification off** (the cron job authenticates with a shared secret instead).
+3. Edge Functions → Secrets: add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` and `CRON_SECRET` from `supabase/local/secrets.env`. That file is git-ignored, and the private key must never be committed. The public key is also in `js/config.js`.
+4. SQL editor: run `supabase/local/cron.sql` (git-ignored, because it holds the secret). It schedules `planner-tick` every minute.
 
 ## Running it
 
@@ -65,15 +65,12 @@ The phone needs the app over **HTTPS**. Host the folder on any free static host.
 
 Sign in on both devices and they share the same data.
 
-## Enabling notifications
+## Turning on reminders
 
-1. Settings → **Turn on notifications** → allow. Use **Send a test** to check.
-2. Under *Block types, colors and reminders*, switch reminders on or off per type and set the minutes (5/10/15 or any number).
-3. For reminders with the app closed or the phone locked: Settings → **Export calendar (.ics)** (14 days by default) and import it:
-   - **Google Calendar:** create a calendar called "Planner" on the web (calendar.google.com → Settings → Import). Google **ignores alarms inside .ics files**, so set that calendar's *default notification* (e.g. 10 min). Delete and recreate the calendar before each re-import.
-   - **Apple Calendar / Outlook:** open the .ics file; the per-block alarms are honored.
-   - Re-export in the Saturday weekly review, or whenever you change the plan.
-4. Android: turn off battery optimisation for Chrome (or the installed app) so the open app is paused less often.
+1. Sign in on the device. Then Settings → **Reminders** → **Turn on reminders on this device** → allow. Do this on every device that should ring.
+2. **Send a test**: it goes through the server and arrives within a minute, even if you close the planner first.
+3. Under *Block types, colors and reminders*, switch reminders on or off per type and set the minutes.
+4. iPhone: open the planner from the Home Screen icon first. Android: if reminders come late, turn off battery optimisation for Chrome.
 
 ## Migrating your current data
 
@@ -84,7 +81,8 @@ The first time v3 opens at the same address as v2, it copies v2's data (settings
 - [ ] `node tests/check.js` prints "all checks passed"
 - [ ] Now-bar shows the current block in its color, with the time range, minutes left and next block; the phone status bar matches when installed
 - [ ] Leave the tab open across a block boundary: the bar and dashboard change with no refresh
-- [ ] Set a block type's lead so a reminder is due in 1–2 min: one notification and one toast. Refresh: no repeat
+- [ ] Settings → Reminders → Send a test, then close the planner: one notification within a minute
+- [ ] Set a block type's lead so a reminder is due in 2–3 min, then close the planner and lock the phone: one notification, on every device with reminders on
 - [ ] Turn a block type's reminder off: no notification
 - [ ] Day → *Edit schedule* → move Lunch: the following blocks slide and prayers stay put. Try "Only this date" and "Every Sunday"
 - [ ] *+ Block*: recurring on weekdays, one-off, one crossing midnight (23:30–00:30). *Duplicate*, *Delete*, *Undo edits*
@@ -103,7 +101,8 @@ The first time v3 opens at the same address as v2, it copies v2's data (settings
 
 ## Known limits
 
-- Reminders need the app open, or the .ics export (see the table above).
+- Reminders run 14 days ahead of the last time any device opened the app.
+- The notification icon is the app icon, not the block color.
 - Custom blocks that overlap the chain count twice in the Budget totals.
 - Conflicts are decided by each device's clock. If a device's clock is badly wrong, its edits win or lose incorrectly.
 - Moving a block later leaves a gap before it, shown as "Nothing scheduled".

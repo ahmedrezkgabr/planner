@@ -9,11 +9,10 @@
 let plan = emptyPlan();
 let tasks = [];
 let blockDone = {};                 // { 'YYYY-MM-DD': [blockId] }  (was: block indexes, which broke when blocks moved)
-let prefs = { notify:false, lastExport:null };
-let notifyLog = {};                 // { reminderKey: firedAtMs }
+let prefs = { lastExport:null };
 let selected = new Date().getDay(), weekOffset = 0, editMode = false, taskFilter = 'now';
 let lastIso = isoDate(new Date()), dashSig = '', curKey = '', version = 0;
-let leader = !(navigator.locks);    // only one tab sends reminders (Web Locks), others wait their turn
+let pushOn = false;                 // this device has a push subscription (Settings → Reminders)
 const keptOverdue = new Set();      // "keep overdue" hides the action buttons for this session
 
 const $ = id => document.getElementById(id);
@@ -31,13 +30,12 @@ const dayLabel = iso => parseISO(iso).toLocaleDateString('en-GB', {weekday:'shor
 const touch = t => { t.updatedAt = new Date().toISOString(); };
 
 /* ---------- persistence (sync.js) ----------
-   Synced: the plan, tasks and done ticks. Device-only: prefs and the reminder log. */
+   Synced: the plan, tasks and done ticks. Device-only: prefs. */
 const stateOf = () => ({ settings:plan.settings, categories:plan.categories, customBlocks:plan.customBlocks, overrides:plan.overrides, tasks, blockDone });
 async function save(...keys){
   try {
     await Sync.save(keys, stateOf());
     if (keys.includes('prefs')) await Sync.setMeta('prefs', prefs);
-    if (keys.includes('notifyLog')) await Sync.setMeta('notifyLog', notifyLog);
     $('savedNote').textContent = Sync.mode === 'memory' ? 'Saved for this session only' : 'Saved';
   } catch (e) { toast('Could not save: ' + e.message); }
 }
@@ -99,8 +97,7 @@ function renderDash(st, now){
     empty: c ? `Nothing assigned to this block. Tasks linked to it, or to every “${cat(c.cat).label}” block, show up here.` : 'Nothing scheduled right now.' });
 
   // Reminder state + the next few reminders
-  const perm = Notify.permission(), on = prefs.notify && perm === 'granted';
-  $('dNotifyState').innerHTML = on ? '' : `System notifications are off. <a href="#" id="dNotifyLink">Turn them on in Settings</a>. Until then, reminders appear here while the planner is open.`;
+  $('dNotifyState').innerHTML = pushOn ? '' : `Reminders are off on this device. <a href="#" id="dNotifyLink">Turn them on in Settings</a>. They arrive even when the planner is closed.`;
   const link = $('dNotifyLink'); if (link) link.onclick = e => { e.preventDefault(); show('settings'); };
   const up = upcomingReminders(plan, st.occ, now);
   $('dReminders').innerHTML = up.length ? up.map(r => `<li><span class="when">${fmt(new Date(r.at).getHours()*60 + new Date(r.at).getMinutes())}</span><span class="dot" style="${colorVars(r.block.cat)}"></span>` +
@@ -546,36 +543,32 @@ $('newCatAdd').onclick = () => {
   $('newCatName').value = ''; changed('categories'); renderCats();
 };
 
-// Notifications
-function renderNotifyStatus(){
-  const el = $('notifyStatus'), perm = Notify.permission();
+// Reminders: Web Push from the server (notify.js Push, supabase/functions/tick)
+async function renderNotifyStatus(){
+  const perm = Push.permission(), ok = Push.supported() && isSecureContext;
+  pushOn = ok && perm === 'granted' && !!(await Push.current());
+  const until = Sync.meta.lastMat ? ` Scheduled until ${addDays(new Date(Sync.meta.lastMat), HORIZON_DAYS - 1).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'})}; opening the app on any device extends it.` : '';
   let msg, cls = '';
-  if (perm === 'unsupported') msg = 'This browser has no notification support. On iPhone, add the planner to the Home Screen first (iOS 16.4+), then open it from there.';
-  else if (!isSecureContext) msg = 'Notifications need the planner to be served over https:// or http://localhost. Opening the file directly doesn’t allow them (see README).';
+  if (Push.needsInstall()) msg = 'On iPhone and iPad, reminders need the Home Screen app: Share → Add to Home Screen, open the planner from that icon, then turn them on here.';
+  else if (!ok) msg = !isSecureContext ? 'Reminders need the planner on https:// or http://localhost.' : 'This browser can’t receive push reminders.';
+  else if (!Sync.user) msg = 'Sign in (Account and sync, below) to turn on reminders. The server sends them, so they arrive even when the planner is closed and the phone is locked.';
   else if (perm === 'denied') { msg = 'Blocked in the browser. Allow notifications for this site in the browser’s site settings, then reload.'; cls = 'bad'; }
-  else if (perm === 'granted' && prefs.notify) { msg = 'On. You’ll get a notification before each block type that has reminders on (below).' + (leader ? '' : ' Another open planner tab is sending them.'); cls = 'ok'; }
-  else msg = 'Off. Reminders show inside the planner only while it’s open.';
-  el.textContent = msg; el.className = 'status ' + cls;
-  $('notifyEnable').hidden = prefs.notify && perm === 'granted'; $('notifyOff').hidden = !(prefs.notify && perm === 'granted');
-  $('notifyEnable').disabled = perm === 'unsupported' || !isSecureContext || perm === 'denied';
+  else if (pushOn) { msg = 'On for this device. Reminders arrive even when the planner is closed.' + until; cls = 'ok'; }
+  else msg = 'Off on this device. Turn them on for each phone or computer that should ring.';
+  $('notifyStatus').textContent = msg; $('notifyStatus').className = 'status ' + cls;
+  $('notifyEnable').hidden = pushOn; $('notifyOff').hidden = $('notifyTest').hidden = !pushOn;
+  $('notifyEnable').disabled = !ok || !Sync.user || perm === 'denied' || Push.needsInstall();
 }
-$('notifyEnable').onclick = async () => {
-  const p = await Notify.request();
-  prefs.notify = p === 'granted'; save('prefs'); renderNotifyStatus(); tick(true);
-  if (prefs.notify) toast('Notifications on');
+const pushAction = (fn, done) => async () => {
+  try { await fn(); if (done) toast(done, null, 6000); } catch (e) { toast('Reminders: ' + (e.message || e), null, 6000); }
+  renderNotifyStatus(); tick(true);
 };
-$('notifyOff').onclick = () => { prefs.notify = false; save('prefs'); renderNotifyStatus(); tick(true); };
-$('notifyTest').onclick = async () => {
-  const c = cat('Gym'), title = 'Gym starts in ' + c.lead + ' minutes';
-  if (Notify.permission() === 'granted') { try { await Notify.show(title, { body:'Test from your planner', tag:'test', icon:Notify.icon(c.color) }); } catch (e) { toast('Notification failed: ' + e.message); } }
-  toast(title + ' (test)', 'Gym');
-};
+$('notifyEnable').onclick = pushAction(() => Push.enable(), 'Reminders on for this device');
+$('notifyOff').onclick = pushAction(() => Push.disable(), 'Reminders off for this device');
+$('notifyTest').onclick = pushAction(() => Push.test(), 'Test sent to the server. It should arrive within a minute. Try closing the planner first.');
+// A push arrived while the planner is open: also show it in the app.
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data?.type === 'reminder') toast(e.data.title, null, 10000); });
 
-// Calendar + Excel
-$('icsExport').onclick = () => {
-  const days = Math.max(1, Math.min(60, Number($('icsDays').value) || 14)), from = new Date(); from.setHours(0, 0, 0, 0);
-  download(buildICS(plan, from, days), `planner_reminders_${isoDate(from)}.ics`, 'text/calendar');
-};
 $('jsonExport').onclick = () => {
   download(Sync.backup(), `planner_${isoDate(new Date())}.json`, 'application/json');
   prefs.lastExport = new Date().toISOString(); save('prefs'); renderBackup();
@@ -656,24 +649,9 @@ function tick(force){
   renderNowbar(st, now); paintBackground(st);
   const key = st.current ? st.current.id + st.current.date : '';
   if (key !== curKey){ curKey = key; if (!$('view-day').hidden) renderDay(); if (!$('view-tasks').hidden) renderTasks(); }
-  const sig = [key, st.next?.id, Math.floor(now / 60000), version, prefs.notify].join('|');
+  const sig = [key, st.next?.id, Math.floor(now / 60000), version, pushOn].join('|');
   if (force || sig !== dashSig){ dashSig = sig; renderDash(st, now); }
   positionNow();
-  runReminders(st, now);
-}
-async function runReminders(st, now){
-  if (!leader) return;
-  const due = dueReminders(plan, st.occ, now, notifyLog);
-  if (!due.length) return;
-  for (const r of due) notifyLog[r.key] = now;   // log first: a crash or reload can't cause a repeat
-  pruneLog(notifyLog, now); await save('notifyLog');
-  for (const r of due){
-    const b = r.block, open = tasks.filter(t => inBlock(t, b) && !doneIn(t, b));
-    const title = `${short(b.name)} starts in ${r.minsLeft} minute${r.minsLeft === 1 ? '' : 's'}`;
-    const body = fmtRange(b.start, b.end) + (open.length ? `\n${open.length} task${open.length > 1 ? 's' : ''}: ${open.slice(0, 3).map(t => t.title).join(', ')}` : '');
-    if (prefs.notify && Notify.permission() === 'granted') Notify.show(title, { body, tag:r.key, icon:Notify.icon(cat(b.cat).color), data:{ url:location.href } }).catch(() => {});
-    if (document.visibilityState === 'visible') toast(title, b.cat, 10000);
-  }
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tick(true); });
 window.addEventListener('focus', () => tick(true));
@@ -684,19 +662,16 @@ window.addEventListener('focus', () => tick(true));
   const migrated = await Sync.migrateV2();
   load(Sync.state());
   prefs = { ...prefs, ...(Sync.meta.prefs || {}) };
-  notifyLog = Sync.meta.notifyLog || {};
   if (migrated) toast('Brought over your data from the previous version.');
 
   Sync.onRemote = st => { load(st); version++; renderAll(); if (!$('view-settings').hidden) renderSettings(); };
-  Sync.onStatus = renderAccount;
+  Sync.onStatus = () => { renderAccount(); renderNotifyStatus(); };
   Sync.connect();
   window.addEventListener('online', () => Sync.syncNow());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') Sync.syncNow(); });
 
   // Service worker: offline use, installability, notifications on Android.
   if ('serviceWorker' in navigator && isSecureContext && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
-  // One tab sends reminders at a time. When it closes, the next tab takes over.
-  if (navigator.locks) navigator.locks.request('planner-reminders', () => { leader = true; tick(true); return new Promise(() => {}); });
 
   renderSettings(); renderAll();
   let v = 'now'; try { v = sessionStorage.getItem('view') || 'now'; planMode = v === 'week' ? 'week' : 'day'; } catch (e) {}

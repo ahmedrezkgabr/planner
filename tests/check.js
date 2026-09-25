@@ -37,19 +37,26 @@ run(`plan.settings.bedWork = '00:30'`);
 assert.equal(run(`fromMin(buildDay(plan, parseISO('2026-09-28')).find(b => b.cat === 'Sleep').start)`), '00:30');
 run(`plan.settings.bedWork = '23:00'`);
 
-// Reminders: due once, deduped by the log, and a moved block gets a fresh one.
-ctx.log = {};
-ctx.ms = at('2026-09-27', '16:28');   // gym 16:35, lead 10
-let due = run('dueReminders(plan, around(plan, ms), ms, log)').filter(r => r.block.cat === 'Gym');
-assert.equal(due.length, 1); assert.equal(due[0].minsLeft, 7);
-run(`log[dueReminders(plan, around(plan, ms), ms, log).find(r => r.block.cat === 'Gym').key] = ms`);
-assert.equal(run('dueReminders(plan, around(plan, ms), ms, log)').filter(r => r.block.cat === 'Gym').length, 0, 'no duplicate');
-assert.equal(run(`dueReminders(plan, around(plan, ${at('2026-09-27', '16:40')}), ${at('2026-09-27', '16:40')}, log)`).filter(r => r.block.cat === 'Gym').length, 0, 'none after start');
-run(`plan.overrides.dated['2026-09-27'] = { 'Sun:lunch-whenever-it-s-ready': { start: toMin('16:08') } }`);   // gym now 16:38, reminder at 16:28
-assert.equal(run('dueReminders(plan, around(plan, ms), ms, log)').filter(r => r.block.cat === 'Gym').length, 1, 'moved block re-reminds');
-run(`plan.categories.Gym.remind = false`);
-assert.equal(run('dueReminders(plan, around(plan, ms), ms, log)').filter(r => r.block.cat === 'Gym').length, 0, 'category off');
-run(`plan.categories.Gym.remind = true; delete plan.overrides.dated['2026-09-27']`);
+// Reminders: materialize() rows for the push server.
+{
+  ctx.ms = at('2026-09-27', '16:28');   // Sunday; gym 16:35, lead 10
+  const rows = run('materialize(plan, ms)');
+  const gym = rows.find(r => r.id === 'Sun:gym|2026-09-27');
+  assert.equal(new Date(gym.remind_at).getTime(), at('2026-09-27', '16:25'));
+  assert.ok(!rows.some(r => new Date(r.end_at).getTime() <= ctx.ms), 'nothing that already ended');
+  assert.ok(rows.some(r => r.id === 'Sun:gym|2026-10-10') === false && rows.some(r => r.id.endsWith('|2026-10-10')), '14 days: up to Sat 10 Oct');
+  assert.ok(!rows.some(r => r.id.endsWith('|2026-10-11')));
+  assert.equal(rows.find(r => r.cat === 'Meals').remind_at, null, 'Meals has reminders off');
+  assert.equal(new Set(rows.map(r => r.id)).size, rows.length, 'ids unique');
+  assert.equal(rows.find(r => r.id === 'Sun:sleep|2026-09-27').end_at, new Date(at('2026-09-28', '06:30')).toISOString(), 'sleep crosses midnight');
+  run(`plan.overrides.dated['2026-09-27'] = { 'Sun:lunch-whenever-it-s-ready': { start: toMin('16:08') } }`);   // gym moves to 16:38
+  const moved = run('materialize(plan, ms)').find(r => r.id === 'Sun:gym|2026-09-27');
+  assert.notEqual(moved.hash, gym.hash); assert.equal(new Date(moved.remind_at).getTime(), at('2026-09-27', '16:28'));
+  run(`plan.overrides.dated['2026-09-27'] = { 'Sun:gym': { hidden: true } }`);
+  assert.ok(!run('materialize(plan, ms)').some(r => r.id === 'Sun:gym|2026-09-27'), 'hidden block not emitted');
+  run(`delete plan.overrides.dated['2026-09-27']`);
+  assert.equal(run('materialize(plan, ms)').find(r => r.id === 'Sun:gym|2026-09-27').hash, gym.hash, 'hash is stable');
+}
 
 // Tasks: a block-linked task goes overdue after the block; "next matching" finds the next gym.
 ctx.t = run(`newTask({ title:'Buy protein', link:{ type:'block', date:'2026-09-20', blockId:'Sun:gym' } })`);
@@ -60,10 +67,6 @@ assert.equal(nx.blockId, 'Mon:gym'); assert.equal(nx.date, '2026-09-21');
 ctx.t2 = run(`newTask({ title:'Warm-up', link:{ type:'cat', cat:'Gym' } })`);
 ctx.ms = at('2026-09-27', '16:45');
 assert.deepEqual(run('tasksForNow([t, t2], status(plan, ms), ms).map(x => x.title)'), ['Warm-up']);
-
-// Calendar export has the gym event with a 10-minute alarm.
-const ics = run(`buildICS(plan, parseISO('2026-09-20'), 1)`);
-assert.ok(/SUMMARY:Gym\r\n[\s\S]*?TRIGGER:-PT10M/.test(ics)); assert.ok(!ics.includes('SUMMARY:Spare'));
 
 // Quick add. 2026-09-27 is a Sunday; at 16:45 the current block is Gym.
 {

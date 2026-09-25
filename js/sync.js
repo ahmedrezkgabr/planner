@@ -21,6 +21,7 @@ const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/
 
 // ui.js state key → record collection
 const COLLS = { settings:'settings', categories:'category', customBlocks:'customBlock', overrides:'override', tasks:'task', blockDone:'blockDone' };
+const PLAN_COLLS = new Set(['settings', 'category', 'customBlock', 'override']);   // changes here re-materialize reminders
 
 /* ---------- state <-> records (pure, tested) ---------- */
 // One ui.js state key → {recordId: data}
@@ -114,6 +115,7 @@ const Sync = {
     }
     if (!changed.length) return;
     await this.put(changed);
+    if (changed.some(r => PLAN_COLLS.has(r.collection))) await this.setMeta('matDirty', true);
     clearTimeout(this.timer); this.timer = setTimeout(() => this.syncNow(), 1000);
   },
 
@@ -160,6 +162,7 @@ const Sync = {
     const j = JSON.parse(text);
     if (j.app !== 'planner' || !Array.isArray(j.records)) throw new Error('Not a planner backup file');
     const n = await this.apply(j.records.filter(r => r.collection && r.id && r.updated_at), true);
+    if (n) await this.setMeta('matDirty', true);
     this.syncNow();
     return n;
   },
@@ -196,7 +199,7 @@ const Sync = {
     if (!this.client){ if (navigator.onLine) await this.connect(); return; }
     if (!this.user || this.busy) return;
     this.busy = true;
-    try { await this.push(); await this.pull(); this.error = ''; await this.setMeta('lastSync', Date.now()); }
+    try { await this.push(); await this.pull(); await this.materialize(); this.error = ''; await this.setMeta('lastSync', Date.now()); }
     catch (e) { this.error = e.message || String(e); }
     finally { this.busy = false; this.onStatus(); }
   },
@@ -210,6 +213,33 @@ const Sync = {
       await this.put(part.filter(r => this.recs.get(r.k) === r).map(r => ({ ...r, dirty:false })));
     }
   },
+  /* Upload the next 14 days of block occurrences for the push server (notify.js materialize).
+     Runs when the plan changed, or every 6 h so the window keeps moving. Only changed rows are sent.
+     A row keeps its sent_at unless its remind_at moved (then it reminds again). Blocks that are gone get deleted = true. */
+  async materialize(){
+    if (!this.meta.matDirty && Date.now() - (this.meta.lastMat || 0) < 6 * 3600e3) return;
+    const now = Date.now(), rows = materialize(this.state(), now);
+    const fromIso = new Date(now).toISOString(), toIso = addDays(new Date(now), HORIZON_DAYS).toISOString();
+    const { data:cur, error } = await this.client.from('occurrences').select('id,hash,remind_at,sent_at,deleted').gt('end_at', fromIso).lt('start_at', toIso);
+    if (error) throw error;
+    const have = new Map(cur.map(r => [r.id, r])), ids = new Set(rows.map(r => r.id));
+    const same = (a, b) => a == null ? b == null : b != null && Date.parse(a) === Date.parse(b);
+    const up = rows.filter(r => { const h = have.get(r.id); return !h || h.deleted || h.hash !== r.hash; }).map(r => {
+      const h = have.get(r.id);
+      return { user_id:this.user.id, ...r, deleted:false, sent_at:h && !h.deleted && same(h.remind_at, r.remind_at) ? h.sent_at : null };
+    });
+    for (let i = 0; i < up.length; i += 500){
+      const { error } = await this.client.from('occurrences').upsert(up.slice(i, i + 500), { onConflict:'user_id,id' });
+      if (error) throw error;
+    }
+    const gone = cur.filter(r => !r.deleted && !ids.has(r.id) && !r.id.startsWith('test|')).map(r => r.id);
+    for (let i = 0; i < gone.length; i += 200){
+      const { error } = await this.client.from('occurrences').update({ deleted:true }).in('id', gone.slice(i, i + 200));
+      if (error) throw error;
+    }
+    await this.setMeta('lastMat', now); await this.setMeta('matDirty', false);
+  },
+
   // ponytail: pulls by server_ts high-water mark; a row committed late with an older server_ts is missed here, and Realtime covers that case.
   async pull(){
     const key = 'lastPull:' + this.user.id;

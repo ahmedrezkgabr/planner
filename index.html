@@ -111,10 +111,10 @@
 
   <section id="view-settings" hidden>
     <fieldset>
-      <legend>Notifications</legend>
+      <legend>Reminders</legend>
       <div class="status" id="notifyStatus"></div>
-      <div class="row"><button class="btn primary" id="notifyEnable">Turn on notifications</button><button class="btn" id="notifyOff">Turn off</button><button class="btn" id="notifyTest">Send a test</button></div>
-      <p class="hint">In-app reminders work while the planner is open: a tab (even in the background), or the installed app while your phone keeps it running. Phones pause web apps after a few minutes in the background or with the screen locked. For reminders that always fire, use <b>calendar reminders</b> below.</p>
+      <div class="row"><button class="btn primary" id="notifyEnable">Turn on reminders on this device</button><button class="btn" id="notifyOff">Turn off</button><button class="btn" id="notifyTest">Send a test</button></div>
+      <p class="hint">The server sends a notification before each block whose type has reminders on (below), to every device where you turned them on. They arrive even when the planner is closed or the phone is locked. Android: if they come late, turn off battery optimisation for Chrome.</p>
     </fieldset>
 
     <fieldset>
@@ -123,12 +123,6 @@
       <div class="cats" id="cats"></div>
       <div class="row" style="margin-top:10px"><input id="newCatName" type="text" placeholder="New block type, e.g. Meeting" maxlength="30" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;flex:1 1 180px"><input id="newCatColor" type="color" value="#F4B183" aria-label="Color"><button class="btn" id="newCatAdd">Add type</button></div>
       <datalist id="leads"><option value="5"><option value="10"><option value="15"><option value="30"></datalist>
-    </fieldset>
-
-    <fieldset>
-      <legend>Calendar reminders (planner closed, phone locked)</legend>
-      <p>Exports your blocks (only types with reminders on) as a calendar file with alarms. Import it into your phone's calendar and the calendar app reminds you, offline, with no server. Re-export when the plan changes, for example in the Saturday weekly review.</p>
-      <div class="row"><label class="muted">Days <input id="icsDays" type="number" min="1" max="60" value="14" style="width:64px;padding:6px;border:1px solid var(--line);border-radius:6px"></label><button class="btn" id="icsExport">Export calendar (.ics)</button></div>
     </fieldset>
 
     <fieldset>

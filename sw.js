@@ -4,14 +4,12 @@
       network. Your data is already local in IndexedDB.
    2. Installability: Chrome/Edge/Android need a service worker to offer
       "Install app".
-   3. Notifications: Android Chrome shows page notifications only through
-      registration.showNotification(). Tapping one opens or focuses the
-      planner.
-   A service worker cannot run timers while the app is closed, so it does
-   NOT schedule reminders. See README "Notifications".
+   3. Reminders: shows the Web Push messages sent by the tick edge
+      function (it does no scheduling itself), and focuses or opens the
+      planner when you tap one.
    Bump VERSION when you change any file so phones pick up the update.
    ===================================================================== */
-const VERSION = 'planner-v3.3';
+const VERSION = 'planner-v3.4';
 const SHELL = ['./', 'index.html', 'planner.css', 'manifest.webmanifest',
   'js/schedule.js', 'js/tasks.js', 'js/notify.js', 'js/config.js', 'js/sync.js', 'js/ui.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
@@ -32,6 +30,16 @@ self.addEventListener('fetch', e => {
     const net = fetch(e.request).then(r => { if (r.ok) cache.put(e.request, r.clone()); return r; }).catch(() => null);
     return hit || (await net) || (e.request.mode === 'navigate' ? cache.match('index.html') : Response.error());
   }));
+});
+
+// A reminder from the tick edge function. Always show it (iOS revokes push for silent pushes); an open planner also gets a toast.
+self.addEventListener('push', e => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch (err) { d = { title: e.data && e.data.text() }; }
+  const title = d.title || 'Planner';
+  e.waitUntil(Promise.all([
+    self.registration.showNotification(title, { body:d.body || '', tag:d.tag, renotify:true, icon:'icons/icon-192.png', badge:'icons/icon-192.png', data:{ url:'./' } }),
+    self.clients.matchAll({ type:'window' }).then(list => list.forEach(c => c.postMessage({ type:'reminder', title, body:d.body }))),
+  ]));
 });
 
 // Tapping a notification brings the planner to the front, or opens it.
