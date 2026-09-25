@@ -22,18 +22,22 @@
 
 <div class="wrap" id="wrap">
   <header>
-    <h1>Your week, with room in it</h1>
-    <p>Prayers, work and sleep are the anchors. Everything else is a chain that slides; the dashed blocks are the slack.</p>
+    <div>
+      <h1>Your week, with room in it</h1>
+      <p>Prayers, work and sleep are the anchors. Everything else is a chain that slides; the dashed blocks are the slack.</p>
+    </div>
+    <button class="gear" id="gear" type="button" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </header>
 
+  <!-- Bottom tab bar on phones, left rail on wide screens. Settings is behind the gear. -->
   <nav role="tablist" aria-label="Views">
     <button role="tab" data-view="now" aria-selected="true">Now</button>
-    <button role="tab" data-view="day" aria-selected="false">Day</button>
-    <button role="tab" data-view="week" aria-selected="false">Week</button>
+    <button role="tab" data-view="plan" aria-selected="false">Plan</button>
     <button role="tab" data-view="tasks" aria-selected="false">Tasks<span class="badge" id="overdueBadge" hidden></span></button>
-    <button role="tab" data-view="budget" aria-selected="false">Budget</button>
-    <button role="tab" data-view="settings" aria-selected="false">Settings</button>
+    <button role="tab" data-view="budget" aria-selected="false">Stats</button>
   </nav>
+
+  <div class="seg plan-seg" id="planSeg" role="group" aria-label="Plan view" hidden><button data-plan="day">Day</button><button data-plan="week">Week</button></div>
 
   <!-- NOW: current block, next block, tasks for this block, today's count, upcoming reminders -->
   <section id="view-now">
@@ -44,7 +48,8 @@
       <div class="card span">
         <h3 id="dTasksTitle">Tasks for this block</h3>
         <ul class="tlist" id="dTasks"></ul>
-        <div class="task-add"><input id="dTaskText" type="text" placeholder="Add a task to this block" maxlength="160" aria-label="New task for the current block"><button class="btn" id="dTaskAdd">Add</button></div>
+        <div class="task-add"><input id="dTaskText" type="text" placeholder="Add a task to this block" maxlength="200" aria-label="New task" aria-describedby="dTaskPrev" enterkeyhint="done" autocomplete="off"><button class="btn" id="dTaskAdd">Add</button></div>
+        <div class="qprev" id="dTaskPrev" aria-live="polite"></div>
       </div>
       <div class="card span">
         <h3>Upcoming reminders</h3>
@@ -82,10 +87,14 @@
 
   <section id="view-tasks" hidden>
     <div class="task-add">
-      <input id="quickText" type="text" placeholder="Quick add to the inbox" maxlength="160" aria-label="Quick add task">
+      <input id="quickText" type="text" placeholder="Call dad !high @gym tomorrow 20m" maxlength="200" aria-label="Quick add task" aria-describedby="quickPrev" enterkeyhint="done" autocomplete="off">
       <button class="btn" id="quickAdd">Add</button>
       <button class="btn primary" id="newTask">New task…</button>
     </div>
+    <div class="qprev" id="quickPrev" aria-live="polite"></div>
+    <details class="hint qhelp"><summary>Quick-add shortcuts</summary>
+      <code>!low !high !urgent</code> priority · <code>@gym</code> next Gym block · <code>@every-gym</code> every Gym block · <code>today tomorrow fri 2026-10-03</code> day · <code>morning afternoon evening</code> part of day · <code>20m 1h30m</code> estimate · <code>due:fri</code> due date. No link word = the current block.
+    </details>
     <div class="filters" id="filters" role="group" aria-label="Task views"></div>
     <ul class="tlist" id="taskView"></ul>
   </section>

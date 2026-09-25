@@ -94,7 +94,7 @@ function renderDash(st, now){
     (over ? `<div><b style="color:var(--red)">${over}</b><span>overdue</span></div>` : '') + `</div>`;
 
   $('dTasksTitle').textContent = c ? `Tasks for ${short(c.name)}` : 'Tasks for now';
-  $('dTaskText').placeholder = c ? `Add a task to ${short(c.name)} (this block)` : 'Add a task to the inbox';
+  $('dTaskText').placeholder = c ? `Add to ${short(c.name)}… or try !high @gym tomorrow 20m` : 'Add a task… try !high @gym tomorrow 20m';
   renderTaskList($('dTasks'), tasksForNow(tasks, st, now).sort(byPriority), { block:c,
     empty: c ? `Nothing assigned to this block. Tasks linked to it, or to every “${cat(c.cat).label}” block, show up here.` : 'Nothing scheduled right now.' });
 
@@ -107,13 +107,25 @@ function renderDash(st, now){
     `<span>${esc(short(r.block.name))} <span class="muted">starts ${fmt(r.block.start)}, ${cat(r.block.cat).lead} min notice</span></span></li>`).join('')
     : '<li class="muted">No reminders in the next 24 hours. Turn them on per block type in Settings.</li>';
 }
-$('dTaskAdd').onclick = () => {
-  const inp = $('dTaskText'), title = inp.value.trim(); if (!title) return;
-  const c = status(plan, Date.now()).current;
-  tasks.push(newTask({ title, link: c ? { type:'block', date:c.date, blockId:c.id } : { type:'none' } }));
-  inp.value = ''; changed('tasks'); inp.focus();
-};
-$('dTaskText').onkeydown = e => { if (e.key === 'Enter') $('dTaskAdd').click(); };
+/* ---------- quick add (Now and Tasks): one line, parsed by parseQuick(), with a live preview ---------- */
+function quickPreview(inp, out){
+  const q = inp.value.trim() ? parseQuick(inp.value, plan, Date.now()) : null;
+  if (!q || !q.title){ out.innerHTML = ''; return; }
+  const L = linkLabel({ link:q.link }, plan);
+  out.innerHTML = `<span class="ttl">${esc(q.title)}</span><span style="${L.cat ? colorVars(L.cat) : ''}">${esc(L.text)}</span>` +
+    (q.priority ? `<span>${q.priority}</span>` : '') + (q.estimate ? `<span>${dur(q.estimate)}</span>` : '') + (q.due ? `<span>due ${esc(dayLabel(q.due))}</span>` : '');
+}
+function quickAdd(inp, out){
+  const q = parseQuick(inp.value, plan, Date.now()); if (!q.title) return;
+  const t = newTask(q); tasks.push(t);
+  inp.value = ''; out.innerHTML = ''; changed('tasks'); inp.focus();
+  toast('Added to ' + linkLabel(t, plan).text, linkLabel(t, plan).cat);
+}
+for (const [inp, btn, out] of [['dTaskText', 'dTaskAdd', 'dTaskPrev'], ['quickText', 'quickAdd', 'quickPrev']]){
+  $(btn).onclick = () => quickAdd($(inp), $(out));
+  $(inp).onkeydown = e => { if (e.key === 'Enter') quickAdd($(inp), $(out)); };
+  $(inp).oninput = () => quickPreview($(inp), $(out));
+}
 $('nowbar').onclick = () => show('now');
 
 /* ---------- shared task list rendering ---------- */
@@ -332,8 +344,6 @@ function renderTasks(){
   const over = taskView('overdue', tasks, plan, now, st).length, badge = $('overdueBadge');
   badge.hidden = !over; badge.textContent = over;
 }
-$('quickAdd').onclick = () => { const inp = $('quickText'), title = inp.value.trim(); if (!title) return; tasks.push(newTask({ title })); inp.value = ''; changed('tasks'); inp.focus(); };
-$('quickText').onkeydown = e => { if (e.key === 'Enter') $('quickAdd').click(); };
 $('newTask').onclick = () => openTaskDlg(null);
 
 /* ---------- Task dialog ---------- */
@@ -604,15 +614,25 @@ $('acctSync').onclick = () => Sync.syncNow();
 $('acctSignOut').onclick = () => Sync.signOut();
 
 /* ---------- navigation ---------- */
+// Tabs: Now · Plan (Day/Week toggle) · Tasks · Stats. Settings opens from the gear.
 const VIEWS = ['now','day','week','tasks','budget','settings'];
+let planMode = 'day';
 function show(view){
-  document.querySelectorAll('nav [role=tab]').forEach(x => x.setAttribute('aria-selected', x.dataset.view === view));
+  if (view === 'plan') view = planMode;
+  if (view === 'day' || view === 'week') planMode = view;
+  const tab = view === 'day' || view === 'week' ? 'plan' : view;
+  document.querySelectorAll('nav [role=tab]').forEach(x => x.setAttribute('aria-selected', x.dataset.view === tab));
+  document.querySelectorAll('#planSeg button').forEach(x => x.setAttribute('aria-pressed', x.dataset.plan === view));
+  $('planSeg').hidden = tab !== 'plan'; $('gear').setAttribute('aria-pressed', view === 'settings');
   VIEWS.forEach(v => $('view-' + v).hidden = v !== view);
+  window.scrollTo(0, 0);
   $('wrap').classList.toggle('wide', view === 'week');
   if (view === 'day') renderDay(); if (view === 'tasks') renderTasks(); if (view === 'settings') renderNotifyStatus();
   try { sessionStorage.setItem('view', view); } catch (e) {}
 }
 document.querySelectorAll('nav [role=tab]').forEach(b => b.onclick = () => show(b.dataset.view));
+document.querySelectorAll('#planSeg button').forEach(b => b.onclick = () => show(b.dataset.plan));
+$('gear').onclick = () => show($('view-settings').hidden ? 'settings' : 'now');
 
 function renderAll(){ renderDay(); renderWeek(); renderBudget(); renderTasks(); tick(true); }
 
@@ -620,11 +640,20 @@ function renderAll(){ renderDay(); renderWeek(); renderBudget(); renderTasks(); 
    Runs every 15 s and whenever the page becomes visible again. Everything is
    recomputed from the clock each time, so date changes, sleep/wake and time zone
    changes fix themselves on the next tick. */
+// Page background: current block color fading into the next block's. Weaker for dark colors and in dark mode so text keeps its contrast.
+const darkMode = matchMedia('(prefers-color-scheme: dark)');
+darkMode.onchange = () => tick(true);
+function paintBackground(st){
+  const b = document.body.style, c = st.current && cat(st.current.cat), n = st.next && cat(st.next.cat);
+  const mix = (x, strong) => !x || x.dashed ? '0%' : darkMode.matches ? (strong ? '22%' : '8%') : inkOn(x.color) === '#FFFFFF' ? (strong ? '25%' : '10%') : (strong ? '55%' : '20%');
+  b.setProperty('--bgc', c && !c.dashed ? c.color : 'transparent'); b.setProperty('--mixa', mix(c, true));
+  b.setProperty('--bgn', n && !n.dashed ? n.color : c && !c.dashed ? c.color : 'transparent'); b.setProperty('--mixb', n && !n.dashed ? mix(n, false) : mix(c, false));
+}
 function tick(force){
   const now = Date.now(), iso = isoDate(new Date(now));
   if (iso !== lastIso){ lastIso = iso; selected = todayIdx(); weekOffset = 0; keptOverdue.clear(); return renderAll(); }
   const st = status(plan, now);
-  renderNowbar(st, now);
+  renderNowbar(st, now); paintBackground(st);
   const key = st.current ? st.current.id + st.current.date : '';
   if (key !== curKey){ curKey = key; if (!$('view-day').hidden) renderDay(); if (!$('view-tasks').hidden) renderTasks(); }
   const sig = [key, st.next?.id, Math.floor(now / 60000), version, prefs.notify].join('|');
@@ -670,7 +699,7 @@ window.addEventListener('focus', () => tick(true));
   if (navigator.locks) navigator.locks.request('planner-reminders', () => { leader = true; tick(true); return new Promise(() => {}); });
 
   renderSettings(); renderAll();
-  let v = 'now'; try { v = sessionStorage.getItem('view') || 'now'; } catch (e) {}
+  let v = 'now'; try { v = sessionStorage.getItem('view') || 'now'; planMode = v === 'week' ? 'week' : 'day'; } catch (e) {}
   show(VIEWS.includes(v) ? v : 'now');
   setInterval(tick, 15000);
 })();

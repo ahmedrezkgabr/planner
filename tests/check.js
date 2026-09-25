@@ -65,6 +65,30 @@ assert.deepEqual(run('tasksForNow([t, t2], status(plan, ms), ms).map(x => x.titl
 const ics = run(`buildICS(plan, parseISO('2026-09-20'), 1)`);
 assert.ok(/SUMMARY:Gym\r\n[\s\S]*?TRIGGER:-PT10M/.test(ics)); assert.ok(!ics.includes('SUMMARY:Spare'));
 
+// Quick add. 2026-09-27 is a Sunday; at 16:45 the current block is Gym.
+{
+  ctx.ms = at('2026-09-27', '16:45'); run('plan = emptyPlan()');
+  const Q = s => run(`parseQuick(${JSON.stringify(s)}, plan, ms)`);
+  let q = Q('Call dad !high @gym tomorrow 20m');
+  assert.equal(q.title, 'Call dad'); assert.equal(q.priority, 'High'); assert.equal(q.estimate, 20);
+  assert.deepEqual(q.link, { type:'block', date:'2026-09-28', blockId:'Mon:gym' });
+  assert.deepEqual(Q('Buy protein').link, { type:'block', date:'2026-09-27', blockId:'Sun:gym' }, 'no token: current block');
+  assert.deepEqual(Q('Stretch @gym').link.blockId, 'Sun:gym', 'today\'s gym is still running');
+  assert.deepEqual(Q('Warm-up @every-gym').link, { type:'cat', cat:'Gym' });
+  assert.deepEqual(Q('Warm-up *gym').link, { type:'cat', cat:'Gym' });
+  assert.deepEqual(Q('Pay rent fri').link, { type:'day', date:'2026-10-02' });
+  assert.deepEqual(Q('Plan week sun').link, { type:'day', date:'2026-09-27' }, 'weekday includes today');
+  assert.deepEqual(Q('Journal evening').link, { type:'period', date:'2026-09-27', period:'evening' });
+  assert.deepEqual(Q('Read tomorrow morning').link, { type:'period', date:'2026-09-28', period:'morning' });
+  q = Q('Report 1h30m !4 due:2026-10-05');
+  assert.equal(q.estimate, 90); assert.equal(q.priority, 'Urgent'); assert.equal(q.due, '2026-10-05');
+  q = Q('Email bob@x.com about @nowhere');
+  assert.equal(q.title, 'Email bob@x.com about @nowhere', 'unmatched @word stays in the title');
+  assert.equal(Q('Fix !bogus thing').title, 'Fix !bogus thing');
+  ctx.ms = at('2026-09-27', '03:00');
+  assert.deepEqual(Q('Nothing now').link.type, 'block', 'at 3am it is Sleep');
+}
+
 // Sync: state -> records -> state round-trips, including dated overrides on ids with colons.
 run(`plan.overrides.dated['2026-09-27'] = { 'Sun:gym': { start: toMin('17:00') } }`);
 ctx.state = { settings:ctx.plan.settings, categories:ctx.plan.categories, customBlocks:ctx.plan.customBlocks, overrides:ctx.plan.overrides,

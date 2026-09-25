@@ -96,7 +96,10 @@ The first time v3 opens at the same address as v2, it copies v2's data (settings
 - [ ] Close and reopen the browser: everything is still there. Settings shows "IndexedDB, protected from clean-up"
 - [ ] Airplane mode on an installed phone app: it still opens and works
 - [ ] At 00:30 the now-bar shows last night's Sleep
-- [ ] Phone width: no sideways scrolling; the Now tab shows current, next, tasks and reminders in that order
+- [ ] Phone width: no sideways scrolling, bottom tab bar (Now · Plan · Tasks · Stats), gear opens Settings
+- [ ] The background tints to the current block color and fades toward the next block; it changes by itself at a block boundary
+- [ ] Quick add: `Call dad !high @gym tomorrow 20m` previews "Gym · <tomorrow>, High, 20 min" and saves there
+- [ ] Dark mode (system setting): all text readable, block colors unchanged
 
 ## Known limits
 

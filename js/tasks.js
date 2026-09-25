@@ -100,6 +100,52 @@ function nextMatchingLink(t, plan, nowMs){
   return null;
 }
 
+/* ---------- quick add: one line → task fields ----------
+   "Call dad !high @gym tomorrow 20m due:fri". Anything that isn't a token stays in the title,
+   and so does an @word that matches nothing. With no link token the task goes to the current block (the inbox if nothing is current). */
+const PRI_TOKENS = { low:'Low', med:'Medium', medium:'Medium', high:'High', urgent:'Urgent', 1:'Low', 2:'Medium', 3:'High', 4:'Urgent' };
+function quickDay(w, nowMs){
+  const today = new Date(nowMs);
+  if (w === 'today') return isoDate(today);
+  if (w === 'tomorrow' || w === 'tmr') return isoDate(addDays(today, 1));
+  if (/^\d{4}-\d{2}-\d{2}$/.test(w)) return w;
+  const i = DAYS.findIndex(d => w.length >= 3 && d.name.toLowerCase().startsWith(w));
+  return i < 0 ? null : isoDate(addDays(today, (i - today.getDay() + 7) % 7));   // this weekday, today included
+}
+function parseQuick(text, plan, nowMs){
+  const out = {}, title = [];
+  let day = null, period = null, at = null, every = null;
+  for (const tok of String(text).trim().split(/\s+/).filter(Boolean)){
+    const w = tok.toLowerCase(); let m;
+    if ((m = w.match(/^!(\w+)$/)) && PRI_TOKENS[m[1]]) out.priority = PRI_TOKENS[m[1]];
+    else if ((m = w.match(/^(?:(\d+)h)?(?:(\d+)m)?$/)) && (m[1] || m[2])) out.estimate = (+m[1] || 0) * 60 + (+m[2] || 0);
+    else if ((m = w.match(/^due:(.+)$/)) && quickDay(m[1], nowMs)) out.due = quickDay(m[1], nowMs);
+    else if (quickDay(w, nowMs)) day = quickDay(w, nowMs);
+    else if (PERIODS[w]) period = w;
+    else if ((m = w.match(/^(?:@every-|\*)(.+)$/)) && quickCat(plan, m[1])) every = quickCat(plan, m[1]);
+    else if ((m = w.match(/^@(.+)$/))) at = { q:slug(m[1]), tok };
+    else title.push(tok);
+  }
+  let b = null;
+  if (at){
+    // First block whose name, type key or type label starts with the word: on the given day, else today (not yet over) and the next 6 days.
+    const hit = x => [x.name, x.cat, plan.categories[x.cat]?.label || ''].some(s => slug(s).startsWith(at.q));
+    for (let k = 0; k < (day ? 1 : 7) && !b; k++){
+      const d = day ? parseISO(day) : addDays(new Date(nowMs), k);
+      b = visible(buildDay(plan, d)).sort((x, y) => x.startAt - y.startAt).find(x => hit(x) && (day || x.endAt > nowMs)) || null;
+    }
+    if (!b) title.push(at.tok);
+  }
+  if (b) out.link = { type:'block', date:b.date, blockId:b.id };
+  else if (every) out.link = { type:'cat', cat:every };
+  else if (period) out.link = { type:'period', date:day || isoDate(new Date(nowMs)), period };
+  else if (day) out.link = { type:'day', date:day };
+  else { const c = status(plan, nowMs).current; out.link = c ? { type:'block', date:c.date, blockId:c.id } : { type:'none' }; }
+  out.title = title.join(' ');
+  return out;
+}
+const quickCat = (plan, w) => Object.keys(plan.categories).find(k => slug(k).startsWith(slug(w)) || slug(plan.categories[k].label).startsWith(slug(w)));
+
 // Short human label for a link, e.g. "Gym · Tue 22 Sep" / "Every Gym" / "Inbox".
 function linkLabel(t, plan){
   const l = t.link, day = iso => parseISO(iso).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
