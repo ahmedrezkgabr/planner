@@ -1,0 +1,13 @@
+# Free Supabase projects pause after a week without activity. One read a week keeps it awake.
+# The key is the publishable one, already public in js/config.js; RLS makes this read return [].
+name: keepalive
+on:
+  schedule: [{ cron: '17 6 * * 1' }]
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: >
+          curl -fsS "https://tohbcduymsuaqivuabei.supabase.co/rest/v1/records?select=id&limit=1"
+          -H "apikey: sb_publishable_hzUba_dNWr2LhhKD58derg_oUz7PPbk"
