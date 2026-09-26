@@ -13,7 +13,6 @@ let prefs = { lastExport:null };
 let selected = new Date().getDay(), weekOffset = 0, editMode = false, taskFilter = 'now';
 let lastIso = isoDate(new Date()), dashSig = '', curKey = '', version = 0;
 let pushOn = false;                 // this device has a push subscription (Settings → Reminders)
-const keptOverdue = new Set();      // "keep overdue" hides the action buttons for this session
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -72,37 +71,28 @@ function renderNowbar(st, now){
   document.title = `${short(c.name)} · ${inMin(c.endAt - now)} left`;
 }
 
-/* ---------- dashboard (Now tab) ---------- */
+/* ---------- dashboard (Now tab): one hero card, its tasks, the rest of today ---------- */
 function renderDash(st, now){
   const c = st.current, n = st.next, today = isoDate(new Date(now));
-  $('dCur').style.cssText = c ? colorVars(c.cat) : 'background:#1F2A37;color:#fff';
+  const then = n ? `<div class="then">Then <b>${esc(short(n.name))}</b> at ${fmt(n.start)}${c ? '' : `, in ${inMin(n.startAt - now)}`}</div>` : '';
+  $('dCur').style.cssText = c ? colorVars(c.cat) : '';
   $('dCur').innerHTML = c
-    ? `<h3>Current · ${esc(cat(c.cat).label)}</h3><p class="big">${esc(c.name)}</p><div class="sub">${fmtRange(c.start, c.end)} · ${dur(c.min)}</div>` +
-      `<div class="rem">${inMin(c.endAt - now)} remaining</div>` + (c.note ? `<div class="meta">${esc(c.note)}</div>` : '') +
-      (st.overlaps.length ? `<div class="meta">Also running: ${st.overlaps.map(o => esc(o.name)).join(', ')}</div>` : '')
-    : `<h3>Current</h3><p class="big">Nothing scheduled</p>`;
-  $('dNext').innerHTML = n
-    ? `<h3>Next</h3><p style="margin:0;font-size:20px;font-weight:600"><span class="dot" style="${colorVars(n.cat)}"></span> ${esc(n.name)}</p><div class="sub">Starts in ${inMin(n.startAt - now)} · ${fmt(n.start)}</div>`
-    : `<h3>Next</h3><p class="muted">Nothing else scheduled.</p>`;
-
-  const tv = taskView('today', tasks, plan, now, st);
-  const doneT = t => isDone(t) || (t.repeat && (t.lastDone || '').endsWith('|' + today));
-  const over = taskView('overdue', tasks, plan, now, st).length, dn = tv.filter(doneT).length;
-  $('dToday').innerHTML = `<h3>Today</h3><div class="nums"><div><b>${tv.length - dn}</b><span>remaining</span></div><div><b>${dn}</b><span>completed</span></div>` +
-    (over ? `<div><b style="color:var(--red)">${over}</b><span>overdue</span></div>` : '') + `</div>`;
+    ? `<p class="big">${esc(c.name)}</p><div class="rem">${inMin(c.endAt - now)} left <span class="sub">· until ${fmt(c.end)}</span></div>` +
+      `<span class="bar"><i style="width:${Math.min(100, (now - c.startAt) / (c.endAt - c.startAt) * 100)}%"></i></span>` +
+      (c.note ? `<div class="meta">${esc(c.note)}</div>` : '') +
+      (st.overlaps.length ? `<div class="meta">Also running: ${st.overlaps.map(o => esc(o.name)).join(', ')}</div>` : '') + then
+    : `<p class="big">Free time</p>${then}`;
 
   $('dTasksTitle').textContent = c ? `Tasks for ${short(c.name)}` : 'Tasks for now';
-  $('dTaskText').placeholder = c ? `Add to ${short(c.name)}… or try !high @gym tomorrow 20m` : 'Add a task… try !high @gym tomorrow 20m';
-  renderTaskList($('dTasks'), tasksForNow(tasks, st, now).sort(byPriority), { block:c,
-    empty: c ? `Nothing assigned to this block. Tasks linked to it, or to every “${cat(c.cat).label}” block, show up here.` : 'Nothing scheduled right now.' });
+  renderTaskList($('dTasks'), tasksForNow(tasks, st, now).sort(byPriority), { block:c, showLink:false, empty:'Nothing for this block.' });
 
-  // Reminder state + the next few reminders
-  $('dNotifyState').innerHTML = pushOn ? '' : `Reminders are off on this device. <a href="#" id="dNotifyLink">Turn them on in Settings</a>. They arrive even when the planner is closed.`;
+  // The rest of today, with a bell where a reminder will ring.
+  const later = st.occ.filter(b => b.startAt > now && b.date === today && b !== n && !cat(b.cat).dashed).slice(0, 6);
+  $('dLater').innerHTML = later.length ? later.map(b => `<li><span class="when">${fmt(b.start)}</span><span class="dot" style="${colorVars(b.cat)}"></span>` +
+    `<span>${esc(short(b.name))}</span>${pushOn && cat(b.cat).remind ? '<svg class="bell" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" role="img" aria-label="Reminder on"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>' : ''}</li>`).join('')
+    : '<li class="muted">Nothing else today.</li>';
+  $('dNotifyState').innerHTML = pushOn || !Push.supported() ? '' : `Reminders are off on this device. <a href="#" id="dNotifyLink">Turn on</a>`;
   const link = $('dNotifyLink'); if (link) link.onclick = e => { e.preventDefault(); show('settings'); };
-  const up = upcomingReminders(plan, st.occ, now);
-  $('dReminders').innerHTML = up.length ? up.map(r => `<li><span class="when">${fmt(new Date(r.at).getHours()*60 + new Date(r.at).getMinutes())}</span><span class="dot" style="${colorVars(r.block.cat)}"></span>` +
-    `<span>${esc(short(r.block.name))} <span class="muted">starts ${fmt(r.block.start)}, ${cat(r.block.cat).lead} min notice</span></span></li>`).join('')
-    : '<li class="muted">No reminders in the next 24 hours. Turn them on per block type in Settings.</li>';
 }
 /* ---------- quick add (Now and Tasks): one line, parsed by parseQuick(), with a live preview ---------- */
 function quickPreview(inp, out){
@@ -145,7 +135,7 @@ function taskItem(t, opts = {}){
     if (L.cat) tag.style.cssText = colorVars(L.cat); li.appendChild(tag);
   }
   if (t.due){ const d = document.createElement('span'); d.className = 'due' + (!isDone(t) && endOfDay(t.due) <= now ? ' late' : ''); d.textContent = 'due ' + dayLabel(t.due); li.appendChild(d); }
-  if (opts.actions && !keptOverdue.has(t.id)) li.appendChild(overdueActions(t));
+  if (opts.actions) li.appendChild(overdueActions(t));
   return li;
 }
 function renderTaskList(ul, list, opts = {}){
@@ -154,20 +144,17 @@ function renderTaskList(ul, list, opts = {}){
   list.forEach(t => ul.appendChild(taskItem(t, opts)));
 }
 
-/* Overdue options: next matching block / reschedule / keep / complete / back to inbox */
+/* Overdue options: next matching block / reschedule. The checkbox completes it. */
 function overdueActions(t){
   const box = document.createElement('div'); box.className = 'acts';
   const today = isoDate(new Date());
   const add = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = fn; box.appendChild(b); };
   const nx = nextMatchingLink(t, plan, Date.now());
-  if (nx) add(t.link.type === 'block' ? 'Next matching block' : 'Move to ' + (nx.date === today ? 'today' : 'tomorrow'), () => {
+  if (nx) add(t.link.type === 'block' ? `Next ${linkLabel({ link:nx }, plan).text.split(' · ')[0]} block` : 'Move to ' + (nx.date === today ? 'today' : 'tomorrow'), () => {
     t.link = nx; if (t.due && t.due < today) t.due = nx.date;   // a stale due date would keep it overdue
     touch(t); changed('tasks'); toast('Moved to ' + linkLabel(t, plan).text, nx.blockId ? buildDay(plan, parseISO(nx.date)).find(b => b.id === nx.blockId)?.cat : null);
   });
   add('Reschedule…', () => openTaskDlg(t, null, true));
-  add('Keep overdue', () => { keptOverdue.add(t.id); renderTasks(); });
-  add('Complete', () => { setDone(t, true); changed('tasks'); });
-  add('To inbox', () => { t.link = { type:'none' }; if (t.due && t.due < today) t.due = ''; touch(t); changed('tasks'); });
   return box;
 }
 
@@ -192,11 +179,9 @@ function renderDay(){
   const all = buildDay(plan, date), blocks = visible(all), sum = daySummary(all);
   $('dayTitle').textContent = d.name;
   $('daySub').textContent = `${date.toLocaleDateString('en-GB', {day:'numeric', month:'long'})}, ${d.kind}`;
-  const dayTasks = tasks.filter(t => t.link.date === iso || t.due === iso);
   $('dayStats').innerHTML =
-    `<span>Sleep <b>${sum.sleepH.toFixed(1)} h</b></span><span>Buffer <b>${sum.buffer} min</b> (${Math.round(sum.bufferPct*100)}% of waking)</span>` +
-    `<span>Deep work <b>${sum.deep} min</b></span>` + (sum.lightsOut != null ? `<span>Lights out <b>${fmt(sum.lightsOut)}</b></span>` : '') +
-    (dayTasks.length ? `<span>Tasks <b>${dayTasks.filter(isDone).length} of ${dayTasks.length}</b> done</span>` : '');
+    `<span>Sleep <b>${sum.sleepH.toFixed(1)} h</b></span><span>Buffer <b>${sum.buffer} min</b></span>` +
+    (sum.lightsOut != null ? `<span>Lights out <b>${fmt(sum.lightsOut)}</b></span>` : '');
   const ppm = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ppm'));
   const wake = (all.find(b => !b.custom && !b.hidden) || {start:360}).start;
   const T0 = Math.min(360, Math.floor(Math.min(wake, ...blocks.map(b => b.start)) / 60) * 60);   // grows upward if you start before 6:00
@@ -228,7 +213,7 @@ function blockEl(b, ppm, T0, isDoneB, onClick){
   el.className = `blk${c.dashed ? ' dashed' : ''}${b.custom ? ' custom' : ''}${b.edited ? ' edited' : ''}${h < 30 ? ' tiny' : ''}${isDoneB ? ' done' : ''}`;
   el.style.cssText = `${colorVars(b.cat)};top:${(b.start - T0) * ppm}px;height:${Math.max(h, 14)}px`;
   el.innerHTML = `<span class="n">${esc(b.name)}</span><span class="t">${fmtRange(b.start, b.end)} (${dur(b.min)}${b.open ? ', ' + b.open + (b.open > 1 ? ' tasks' : ' task') : ''})</span>` +
-    (b.note && h >= 52 ? `<span class="note">${esc(b.note)}</span>` : '');
+    (b.note && h >= 64 ? `<span class="note">${esc(b.note)}</span>` : '');
   if (b.note) el.title = b.note;
   if (onClick){ el.onclick = onClick; if (!editMode) el.setAttribute('aria-pressed', isDoneB); }
   return el;
@@ -325,21 +310,22 @@ function renderWeek(){
 }
 
 /* ---------- Tasks tab ---------- */
-const FILTERS = [['now','Current block'],['today','Today'],['week','This week'],['overdue','Overdue'],['inbox','Inbox'],['done','Completed'],['all','All']];
-const EMPTY = { now:'Nothing assigned to the current block.', today:'Nothing planned for today.', week:'Nothing planned this week.', overdue:'Nothing overdue.', inbox:'Inbox is empty.', done:'Nothing completed yet.', all:'No tasks yet.' };
+const FILTERS = [['now','Now'],['today','Today'],['week','Week'],['inbox','Inbox'],['all','All']];
+const EMPTY = { now:'Nothing for the current block.', today:'Nothing planned for today.', week:'Nothing planned this week.', inbox:'Inbox is empty. Tasks with no day or block land here.', all:'No tasks yet.' };
 function renderTasks(){
   const now = Date.now(), st = status(plan, now);
+  const overdue = taskView('overdue', tasks, plan, now, st).sort(byPriority), od = new Set(overdue.map(t => t.id));
   const f = $('filters'); f.innerHTML = '';
   FILTERS.forEach(([k, label]) => {
-    const n = taskView(k, tasks, plan, now, st).filter(t => k === 'done' || k === 'all' || !isDone(t)).length;
+    const n = taskView(k, tasks, plan, now, st).filter(t => !isDone(t) && !od.has(t.id)).length;
     const b = document.createElement('button'); b.setAttribute('aria-pressed', k === taskFilter); b.innerHTML = `${label}<b>${n}</b>`;
     b.onclick = () => { taskFilter = k; renderTasks(); }; f.appendChild(b);
   });
-  let list = taskView(taskFilter, tasks, plan, now, st);
-  if (taskFilter !== 'done') list = list.sort(byPriority);
-  renderTaskList($('taskView'), list, { actions:taskFilter === 'overdue', block:taskFilter === 'now' ? st.current : null, empty:EMPTY[taskFilter] });
-  const over = taskView('overdue', tasks, plan, now, st).length, badge = $('overdueBadge');
-  badge.hidden = !over; badge.textContent = over;
+  renderTaskList($('overdueList'), overdue, { actions:true }); $('overdueBox').hidden = !overdue.length;
+  $('overdueTitle').textContent = `Overdue (${overdue.length})`;
+  const list = taskView(taskFilter, tasks, plan, now, st).filter(t => !od.has(t.id)).sort(byPriority);
+  renderTaskList($('taskView'), list, { block:taskFilter === 'now' ? st.current : null, showLink:taskFilter !== 'now', empty:EMPTY[taskFilter] });
+  const badge = $('overdueBadge'); badge.hidden = !overdue.length; badge.textContent = overdue.length;
 }
 $('newTask').onclick = () => openTaskDlg(null);
 
@@ -389,7 +375,7 @@ $('taskDlg').addEventListener('close', () => {
          : type === 'period' && date ? { type, date, period:f.linkPeriod.value } : { type:'none' };
   if (isDone(t) && !wasDone) t.completedAt = new Date().toISOString();
   if (!isDone(t)) t.completedAt = null;
-  touch(t); keptOverdue.delete(t.id);
+  touch(t);
   if (isNew) tasks.push(t);
   changed('tasks');
 });
@@ -473,14 +459,14 @@ function renderBudget(){
 
 /* ---------- Settings (original fields + notifications, block types, data) ---------- */
 const FIELDS = [
-  {group:'Prayer times', auto:true, hint:'Typed by hand. Turn on automatic times, or update them from your app or mosque each month; everything below moves with them.',
-   autoHint:'Calculated for each day from your location (Egyptian General Authority method). Today\'s times are shown; everything below moves with them.',
+  {group:'Prayer times', auto:true, hint:'Typed by hand. Your day is built around them.',
+   autoHint:'Worked out every day from your location (Egyptian method). Today\'s times:',
    items:[['fajr','Fajr'],['dhuhr','Dhuhr'],['asr','Asr'],['maghrib','Maghrib'],['isha','Isha']], type:'time'},
   {group:'Sleep', hint:'7.5 h on work nights, 8.5 h before a day off.',
    items:[['wakeWork','Wake, workday'],['bedWork','Lights out before a workday'],['wakeOff','Wake, day off'],['bedOff','Lights out before a day off']], type:'time'},
   {group:'Work', hint:'Remote, Sunday to Thursday.', items:[['workStart','Starts'],['workEnd','Ends']], type:'time'},
-  {group:'Gym slot on workdays', hint:'Afternoon: gym after azkar and lunch, startup after Isha, and a spare block before bed. Evening: startup after lunch in daylight, a longer gym after Isha, no spare block.', type:'toggle'},
-  {group:'Block lengths, in minutes', hint:'The startup and learning lengths are the main dials for how much slack the day has.',
+  {group:'Gym slot on workdays', hint:'Afternoon: gym before Maghrib. Evening: a longer gym after Isha.', type:'toggle'},
+  {group:'Block lengths, in minutes', more:true, hint:'The startup and learning lengths are the main dials for how much slack the day has.',
    items:[['prayer','Prayer, each'],['azkar','Azkar, morning and evening'],['quran','Quran study'],['lunch','Lunch'],['dinner','Dinner'],['breakfast','Breakfast, days off'],
           ['familyLunch','Friday family lunch'],['jumuah','Jumu\'ah, including going'],['jumuahPrep','Leave for Jumu\'ah, before Dhuhr'],['gymMax','Gym, maximum'],
           ['learnWork','Learning, workday'],['startupWork','Startup, workday'],['startupSat','Startup, Saturday morning'],['learnSat','Learning, Saturday'],['readFri','Reading, Friday'],
@@ -507,7 +493,7 @@ function prayerControls(){
   return box;
 }
 function renderSettings(){
-  const f = $('settingsForm'), auto = prayerTimesFor(plan.settings, new Date()); f.innerHTML = '';
+  const auto = prayerTimesFor(plan.settings, new Date()); $('settingsForm').innerHTML = $('settingsMore').innerHTML = '';
   FIELDS.forEach(g => {
     const fs = document.createElement('fieldset');
     fs.innerHTML = `<legend>${g.group}</legend><p>${g.auto && plan.settings.prayerAuto ? g.autoHint : g.hint}</p>`;
@@ -529,7 +515,7 @@ function renderSettings(){
       });
       fs.appendChild(grid);
     }
-    f.appendChild(fs);
+    $(g.more ? 'settingsMore' : 'settingsForm').appendChild(fs);
   });
   renderCats(); renderNotifyStatus(); renderBackup();
 }
@@ -574,13 +560,14 @@ async function renderNotifyStatus(){
   let msg, cls = '';
   if (Push.needsInstall()) msg = 'On iPhone and iPad, reminders need the Home Screen app: Share → Add to Home Screen, open the planner from that icon, then turn them on here.';
   else if (!ok) msg = !isSecureContext ? 'Reminders need the planner on https:// or http://localhost.' : 'This browser can’t receive push reminders.';
-  else if (!Sync.user) msg = 'Sign in (Account and sync, below) to turn on reminders. The server sends them, so they arrive even when the planner is closed and the phone is locked.';
+  else if (!Sync.user) msg = 'Sign in first (above), then turn them on here.';
   else if (perm === 'denied') { msg = 'Blocked in the browser. Allow notifications for this site in the browser’s site settings, then reload.'; cls = 'bad'; }
   else if (pushOn) { msg = 'On for this device. Reminders arrive even when the planner is closed.' + until; cls = 'ok'; }
   else msg = 'Off on this device. Turn them on for each phone or computer that should ring.';
   $('notifyStatus').textContent = msg; $('notifyStatus').className = 'status ' + cls;
   $('notifyEnable').hidden = pushOn; $('notifyOff').hidden = $('notifyTest').hidden = !pushOn;
   $('notifyEnable').disabled = !ok || !Sync.user || perm === 'denied' || Push.needsInstall();
+  if (!Sync.user) $('notifyEnable').hidden = true;   // nothing to press until signed in
 }
 const pushAction = (fn, done) => async () => {
   try { await fn(); if (done) toast(done, null, 6000); } catch (e) { toast('Reminders: ' + (e.message || e), null, 6000); }
@@ -641,6 +628,8 @@ function show(view){
   document.querySelectorAll('#planSeg button').forEach(x => x.setAttribute('aria-pressed', x.dataset.plan === view));
   $('planSeg').hidden = tab !== 'plan'; $('gear').setAttribute('aria-pressed', view === 'settings');
   VIEWS.forEach(v => $('view-' + v).hidden = v !== view);
+  $('viewTitle').textContent = { now:'Now', day:'Plan', week:'Plan', tasks:'Tasks', budget:'Stats', settings:'Settings' }[view];
+  document.body.classList.toggle('on-now', view === 'now');
   window.scrollTo(0, 0);
   $('wrap').classList.toggle('wide', view === 'week');
   if (view === 'day') renderDay(); if (view === 'tasks') renderTasks(); if (view === 'settings') renderNotifyStatus();
@@ -667,7 +656,7 @@ function paintBackground(st){
 }
 function tick(force){
   const now = Date.now(), iso = isoDate(new Date(now));
-  if (iso !== lastIso){ lastIso = iso; selected = todayIdx(); weekOffset = 0; keptOverdue.clear(); return renderAll(); }
+  if (iso !== lastIso){ lastIso = iso; selected = todayIdx(); weekOffset = 0; return renderAll(); }
   const st = status(plan, now);
   renderNowbar(st, now); paintBackground(st);
   const key = st.current ? st.current.id + st.current.date : '';

@@ -74,7 +74,6 @@ function taskView(name, tasks, plan, nowMs, st){
     case 'week':    { const cs = week.map(catsOn); return open.filter(t => week.some((d, i) => onDate(t, d, cs[i]))); }
     case 'overdue': return open.filter(t => isOverdue(t, plan, nowMs));
     case 'inbox':   return open.filter(t => t.link.type === 'none');
-    case 'done':    return tasks.filter(isDone).sort((a,b) => (b.completedAt||'').localeCompare(a.completedAt||''));
     default:        return tasks;
   }
 }
@@ -148,7 +147,8 @@ const quickCat = (plan, w) => Object.keys(plan.categories).find(k => slug(k).sta
 
 // Short human label for a link, e.g. "Gym · Tue 22 Sep" / "Every Gym" / "Inbox".
 function linkLabel(t, plan){
-  const l = t.link, day = iso => parseISO(iso).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
+  const l = t.link, off = iso => Math.round((parseISO(iso) - parseISO(isoDate(new Date()))) / 864e5);
+  const day = iso => ({ '-1':'yesterday', 0:'today', 1:'tomorrow' })[off(iso)] || parseISO(iso).toLocaleDateString('en-GB', Math.abs(off(iso)) < 7 ? {weekday:'short'} : {weekday:'short', day:'numeric', month:'short'});
   if (l.type === 'block'){ const b = buildDay(plan, parseISO(l.date)).find(x => x.id === l.blockId); return { text:`${b ? b.name.split(/[:,]/)[0] : 'Removed block'} · ${day(l.date)}`, cat:b && b.cat }; }
   if (l.type === 'cat') return { text:'Every ' + (plan.categories[l.cat]?.label || l.cat), cat:l.cat };
   if (l.type === 'day') return { text:day(l.date) };

@@ -22,39 +22,34 @@
 
 <div class="wrap" id="wrap">
   <header>
-    <div>
-      <h1>Your week, with room in it</h1>
-      <p>Prayers, work and sleep are the anchors. Everything else is a chain that slides; the dashed blocks are the slack.</p>
-    </div>
+    <div><h1 id="viewTitle">Now</h1></div>
     <button class="gear" id="gear" type="button" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
   </header>
 
   <!-- Bottom tab bar on phones, left rail on wide screens. Settings is behind the gear. -->
   <nav role="tablist" aria-label="Views">
-    <button role="tab" data-view="now" aria-selected="true">Now</button>
-    <button role="tab" data-view="plan" aria-selected="false">Plan</button>
-    <button role="tab" data-view="tasks" aria-selected="false">Tasks<span class="badge" id="overdueBadge" hidden></span></button>
-    <button role="tab" data-view="budget" aria-selected="false">Stats</button>
+    <button role="tab" data-view="now" aria-selected="true"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Now</span></button>
+    <button role="tab" data-view="plan" aria-selected="false"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg><span>Plan</span></button>
+    <button role="tab" data-view="tasks" aria-selected="false"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg><span>Tasks</span><span class="badge" id="overdueBadge" hidden></span></button>
+    <button role="tab" data-view="budget" aria-selected="false"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Stats</span></button>
   </nav>
 
   <div class="seg plan-seg" id="planSeg" role="group" aria-label="Plan view" hidden><button data-plan="day">Day</button><button data-plan="week">Week</button></div>
 
-  <!-- NOW: current block, next block, tasks for this block, today's count, upcoming reminders -->
+  <!-- NOW: the current block (and what's next), its tasks, the rest of today -->
   <section id="view-now">
     <div class="dash">
       <div class="card cur" id="dCur"></div>
-      <div class="card" id="dNext"></div>
-      <div class="card" id="dToday"></div>
       <div class="card span">
         <h3 id="dTasksTitle">Tasks for this block</h3>
         <ul class="tlist" id="dTasks"></ul>
-        <div class="task-add"><input id="dTaskText" type="text" placeholder="Add a task to this block" maxlength="200" aria-label="New task" aria-describedby="dTaskPrev" enterkeyhint="done" autocomplete="off"><button class="btn" id="dTaskAdd">Add</button></div>
+        <div class="task-add"><input id="dTaskText" type="text" placeholder="Add a task" maxlength="200" aria-label="New task" aria-describedby="dTaskPrev" enterkeyhint="done" autocomplete="off"><button class="btn" id="dTaskAdd">Add</button></div>
         <div class="qprev" id="dTaskPrev" aria-live="polite"></div>
       </div>
       <div class="card span">
-        <h3>Upcoming reminders</h3>
+        <h3>Later today</h3>
+        <ul class="rlist" id="dLater"></ul>
         <div id="dNotifyState" class="muted"></div>
-        <ul class="rlist" id="dReminders"></ul>
       </div>
     </div>
   </section>
@@ -65,6 +60,8 @@
       <div class="toolbar"><button class="btn sm" id="editToggle" aria-pressed="false">Edit schedule</button><button class="btn sm" id="addBlock">+ Block</button></div>
     </div>
     <div class="stats" id="dayStats"></div>
+    <div class="tl" id="tl"><div class="gutter" id="gutter"></div><div class="track" id="track"></div></div>
+    <p class="hint" id="dayHint">Tap a block to tick it off.</p>
     <div class="tasks">
       <div class="tasks-head"><h3 id="tasksTitle">Tasks</h3><span id="tasksCount"></span></div>
       <ul class="tlist" id="taskList"></ul>
@@ -75,8 +72,6 @@
       </div>
       <button class="link" id="carry" hidden></button>
     </div>
-    <div class="tl" id="tl"><div class="gutter" id="gutter"></div><div class="track" id="track"></div></div>
-    <p class="hint" id="dayHint">Tap a block to mark it done. Turn on <b>Edit schedule</b> to move, rename, recolor, duplicate or delete blocks. If something runs over, let it eat the next dashed block, not your sleep.</p>
   </section>
 
   <section id="view-week" hidden>
@@ -87,14 +82,15 @@
 
   <section id="view-tasks" hidden>
     <div class="task-add">
-      <input id="quickText" type="text" placeholder="Call dad !high @gym tomorrow 20m" maxlength="200" aria-label="Quick add task" aria-describedby="quickPrev" enterkeyhint="done" autocomplete="off">
+      <input id="quickText" type="text" placeholder="Add a task" maxlength="200" aria-label="Quick add task" aria-describedby="quickPrev" enterkeyhint="done" autocomplete="off">
       <button class="btn" id="quickAdd">Add</button>
-      <button class="btn primary" id="newTask">New task…</button>
+      <button class="btn ghost" id="newTask">More…</button>
     </div>
     <div class="qprev" id="quickPrev" aria-live="polite"></div>
-    <details class="hint qhelp"><summary>Quick-add shortcuts</summary>
+    <details class="hint qhelp"><summary>Shortcuts (optional)</summary>
       <code>!low !high !urgent</code> priority · <code>@gym</code> next Gym block · <code>@every-gym</code> every Gym block · <code>today tomorrow fri 2026-10-03</code> day · <code>morning afternoon evening</code> part of day · <code>20m 1h30m</code> estimate · <code>due:fri</code> due date. No link word = the current block.
     </details>
+    <div class="overdue" id="overdueBox" hidden><h3 id="overdueTitle">Overdue</h3><ul class="tlist" id="overdueList"></ul></div>
     <div class="filters" id="filters" role="group" aria-label="Task views"></div>
     <ul class="tlist" id="taskView"></ul>
   </section>
@@ -111,36 +107,39 @@
 
   <section id="view-settings" hidden>
     <fieldset>
-      <legend>Reminders</legend>
-      <div class="status" id="notifyStatus"></div>
-      <div class="row"><button class="btn primary" id="notifyEnable">Turn on reminders on this device</button><button class="btn" id="notifyOff">Turn off</button><button class="btn" id="notifyTest">Send a test</button></div>
-      <p class="hint">The server sends a notification before each block whose type has reminders on (below), to every device where you turned them on. They arrive even when the planner is closed or the phone is locked. Android: if they come late, turn off battery optimisation for Chrome.</p>
-    </fieldset>
-
-    <fieldset>
-      <legend>Block types, colors and reminders</legend>
-      <p>The color is used everywhere: timeline, now-bar, task labels, notifications. Lead = minutes before the block starts.</p>
-      <div class="cats" id="cats"></div>
-      <div class="row" style="margin-top:10px"><input id="newCatName" type="text" placeholder="New block type, e.g. Meeting" maxlength="30" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;flex:1 1 180px"><input id="newCatColor" type="color" value="#F4B183" aria-label="Color"><button class="btn" id="newCatAdd">Add type</button></div>
-      <datalist id="leads"><option value="5"><option value="10"><option value="15"><option value="30"></datalist>
-    </fieldset>
-
-    <fieldset>
       <legend>Account and sync</legend>
       <div class="status" id="acctStatus"></div>
       <div class="row" id="acctOut" hidden><input id="acctEmail" type="email" placeholder="you@example.com" autocomplete="email" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;flex:1 1 200px"><button class="btn primary" id="acctSend">Email me a sign-in link</button></div>
       <div class="row" id="acctIn" hidden><button class="btn" id="acctSync">Sync now</button><button class="btn" id="acctSignOut">Sign out</button></div>
-      <p class="hint">Your phone and laptop share the same data once both are signed in. Edits made offline upload when you reconnect; if both devices changed the same thing, the later edit wins.</p>
+      <p class="hint">Sign in on every device to share the same plan.</p>
     </fieldset>
 
     <fieldset>
-      <legend>Backup</legend>
-      <p>Your data lives on this device (<span id="storeMode"></span>) and in your account when signed in. A backup file holds everything; importing it merges (newer wins).</p>
-      <div class="row"><button class="btn primary" id="jsonExport">Download backup</button><button class="btn" id="jsonImport">Import backup…</button><input type="file" id="jsonFile" accept=".json,application/json" hidden><span class="saved" id="lastBackup"></span></div>
+      <legend>Reminders</legend>
+      <div class="status" id="notifyStatus"></div>
+      <div class="row"><button class="btn primary" id="notifyEnable">Turn on reminders on this device</button><button class="btn" id="notifyOff">Turn off</button><button class="btn" id="notifyTest">Send a test</button></div>
+      <p class="hint">Turn them on once on each phone or computer. They arrive even when the planner is closed. Which blocks ring is under <i>More settings</i>.</p>
     </fieldset>
 
     <div id="settingsForm"></div>
-    <div class="row"><button class="btn" id="reset">Reset to the original plan</button><button class="btn" id="resetEdits">Remove all block edits</button><span class="saved" id="savedNote"></span></div>
+
+    <details class="more">
+      <summary>More settings: block types, block lengths, backup</summary>
+    <fieldset>
+      <legend>Block types and reminders</legend>
+      <p>Minutes = how long before the block the reminder rings.</p>
+      <div class="cats" id="cats"></div>
+      <div class="row" style="margin-top:10px"><input id="newCatName" type="text" placeholder="New block type, e.g. Meeting" maxlength="30" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;flex:1 1 180px"><input id="newCatColor" type="color" value="#F4B183" aria-label="Color"><button class="btn" id="newCatAdd">Add type</button></div>
+      <datalist id="leads"><option value="5"><option value="10"><option value="15"><option value="30"></datalist>
+    </fieldset>
+      <div id="settingsMore"></div>
+    <fieldset>
+      <legend>Backup</legend>
+      <p>Saved on this device (<span id="storeMode"></span>) and in your account. A backup file holds everything; importing merges it in.</p>
+      <div class="row"><button class="btn primary" id="jsonExport">Download backup</button><button class="btn" id="jsonImport">Import backup…</button><input type="file" id="jsonFile" accept=".json,application/json" hidden><span class="saved" id="lastBackup"></span></div>
+    </fieldset>
+      <div class="row"><button class="btn" id="reset">Reset to the original plan</button><button class="btn" id="resetEdits">Remove all block edits</button><span class="saved" id="savedNote"></span></div>
+    </details>
   </section>
 </div>
 

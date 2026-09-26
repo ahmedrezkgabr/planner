@@ -36,19 +36,23 @@ header{display:flex;align-items:flex-start;gap:12px}
 header > div{flex:1;min-width:0}
 .gear{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:var(--ink);margin-top:2px}
 .gear[aria-pressed="true"]{background:var(--ink);color:var(--on-ink)}
-header h1{font-size:24px;font-weight:600;letter-spacing:-.01em;margin:6px 0 2px}
+header h1{font-size:28px;font-weight:600;letter-spacing:-.02em;margin:6px 0 2px}
 header p{margin:0;color:var(--muted);font-weight:300}
-@media (max-width:560px){ header p{display:none} header h1{font-size:20px} }
+@media (max-width:560px){ header h1{font-size:24px} }
 
 nav{display:flex;gap:2px;margin:14px 0 16px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
-nav button{padding:10px 12px 12px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+nav button{display:flex;align-items:center;gap:8px;padding:10px 12px 12px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;position:relative}
 nav button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
 /* Phones and tablets: a bottom tab bar. */
 @media (max-width:899px){
   nav{position:fixed;left:0;right:0;bottom:0;z-index:30;margin:0;border:0;border-top:1px solid var(--line);background:var(--card);
       padding:0 0 env(safe-area-inset-bottom);justify-content:space-around;overflow:visible}
-  nav button{flex:1;min-height:56px;padding:6px 0;margin:0;border-bottom:0;border-top:3px solid transparent;font-size:15px}
-  nav button[aria-selected="true"]{border-top-color:var(--ink);border-bottom-color:transparent}
+  nav button{flex:1;flex-direction:column;justify-content:center;gap:2px;min-height:58px;padding:6px 0;margin:0;border:0;font-size:12px}
+  nav button[aria-selected="true"]{color:var(--ink)}
+  nav button[aria-selected="true"] svg{background:var(--sunk);border-radius:12px;padding:1px 14px;box-sizing:content-box}
+  nav .badge{position:absolute;top:4px;left:calc(50% + 10px);margin:0}
+  /* On a phone the bar is one line: the block and what's left. The Now tab has the details. */
+  .nowbar .tm,.nowbar .nx,.nowbar .lbl{display:none}
   .wrap{padding-bottom:calc(88px + env(safe-area-inset-bottom))}
 }
 /* Wide screens: a left rail. */
@@ -82,9 +86,12 @@ nav .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;b
 @media (max-width:640px){ .dash{grid-template-columns:1fr} }
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
 .card h3{margin:0 0 6px;font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
-.card.cur{grid-column:1/-1;border:0;background:var(--c);color:var(--ci)}
-.card.cur h3{color:inherit;opacity:.75}
-.card .big{font-size:28px;font-weight:600;line-height:1.15;margin:0}
+.card.cur{grid-column:1/-1;border:0;background:var(--c,var(--ink));color:var(--ci,var(--on-ink));padding:20px 20px 18px;border-radius:16px}
+.card.cur .bar{display:block;height:4px;border-radius:2px;background:rgba(0,0,0,.14);margin:12px 0 4px;overflow:hidden}
+.card.cur .bar i{display:block;height:100%;background:currentColor;opacity:.7}
+.card.cur .then{margin-top:12px;padding-top:10px;border-top:1px solid color-mix(in srgb, currentColor 20%, transparent);font-size:15px}
+body.on-now .nowbar{display:none}
+.card .big{font-size:32px;font-weight:600;line-height:1.1;letter-spacing:-.02em;margin:0;text-wrap:balance}
 .card .sub{font-variant-numeric:tabular-nums;opacity:.85}
 .card .rem{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:4px}
 .card .meta{font-size:13px;opacity:.8;margin-top:6px}
@@ -98,6 +105,8 @@ nav .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;b
 .rlist li{display:flex;gap:10px;align-items:center;padding:5px 0;border-top:1px solid var(--line)}
 .rlist li:first-child{border-top:0}
 .rlist .when{font-variant-numeric:tabular-nums;color:var(--muted);min-width:64px}
+.rlist .bell{margin-left:auto;color:var(--muted);flex:none}
+#dNotifyState:not(:empty){margin-top:8px}
 .muted{color:var(--muted);font-weight:300;font-size:14px}
 
 /* ---------- day picker (unchanged) ---------- */
@@ -153,7 +162,10 @@ nav .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;b
 .qhelp summary{cursor:pointer}
 .qhelp code{font-size:12px;background:var(--sunk);padding:0 4px;border-radius:4px}
 .link{font-size:13px;color:var(--night);text-decoration:underline;margin-top:10px;display:block}
-.filters{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+.filters{display:flex;gap:6px;margin:12px 0;overflow-x:auto;scrollbar-width:none}
+.filters button{flex:none}
+.overdue{margin:12px 0;padding:10px 14px;border:1px solid color-mix(in srgb, var(--red) 40%, transparent);border-radius:12px;background:var(--card)}
+.overdue h3{margin:0 0 4px;font-size:14px;font-weight:600;color:var(--red)}
 .filters button{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--card);font-size:14px}
 .filters button[aria-pressed="true"]{background:var(--ink);color:var(--on-ink);border-color:var(--ink)}
 .filters b{font-weight:600;margin-left:4px;opacity:.7}
@@ -168,7 +180,7 @@ nav .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;b
 .blk{position:absolute;left:0;right:0;border-radius:6px;padding:4px 10px;overflow:hidden;display:flex;gap:8px;align-items:flex-start;text-align:left;width:100%;background:var(--c);color:var(--ci);border:1px solid rgba(0,0,0,.05)}
 .blk .n{flex:1;min-width:0;font-weight:500;font-size:14px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .blk .t{font-size:12px;opacity:.75;font-variant-numeric:tabular-nums;white-space:nowrap;padding-top:1px}
-.blk .note{position:absolute;left:10px;right:10px;top:26px;font-size:12px;font-weight:300;opacity:.75;line-height:1.3;white-space:normal;overflow:hidden}
+.blk .note{position:absolute;left:10px;right:10px;top:26px;font-size:12px;font-weight:300;opacity:.75;line-height:1.3;white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .blk.tiny{padding:1px 10px}
 .blk.tiny .n,.blk.tiny .t{font-size:11px;line-height:1.1;padding-top:0}
 .blk.dashed{background:transparent;border:1px dashed #B8BDC7;color:var(--muted)}
@@ -271,3 +283,9 @@ dialog::backdrop{background:rgba(31,42,55,.45)}
 .prayer-auto{display:grid;gap:10px;justify-items:start;margin:0 0 14px}
 .prayer-auto .grid{justify-self:stretch}
 .prayer-auto .check{display:flex;gap:8px;align-items:center}
+
+/* Settings: the rarely-touched parts are folded away. */
+details.more{margin:8px 0 0;border-top:1px solid var(--line);padding-top:14px}
+details.more > summary{cursor:pointer;font-weight:600;font-size:17px;margin-bottom:16px;list-style-position:outside}
+details.more[open] > summary{margin-bottom:20px}
+.muted a,.status a{color:var(--ink);font-weight:500}

@@ -33,13 +33,6 @@ function materialize(plan, fromMs, days = HORIZON_DAYS){
   return out;
 }
 
-// The next few reminders that will fire, for the dashboard.
-function upcomingReminders(plan, occ, nowMs, n = 4){
-  return occ.filter(b => plan.categories[b.cat]?.remind && b.startAt > nowMs)
-            .map(b => ({ block:b, at:b.startAt - plan.categories[b.cat].lead * 60000 }))
-            .filter(r => r.at > nowMs && r.at < nowMs + 86400000).slice(0, n);
-}
-
 /* ---------- browser side: this device's push subscription ---------- */
 const b64u = s => { const b = atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); };
 const Push = {

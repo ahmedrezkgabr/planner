@@ -79,7 +79,7 @@ The first time v3 opens at the same address as v2, it copies v2's data (settings
 ## Testing checklist
 
 - [ ] `node tests/check.js` prints "all checks passed"
-- [ ] Now-bar shows the current block in its color, with the time range, minutes left and next block; the phone status bar matches when installed
+- [ ] Now shows one card: the current block, time left, progress and what's next. On the other tabs a slim bar keeps the current block in view; the phone status bar matches when installed
 - [ ] Leave the tab open across a block boundary: the bar and dashboard change with no refresh
 - [ ] Settings → Reminders → Send a test, then close the planner: one notification within a minute
 - [ ] Set a block type's lead so a reminder is due in 2–3 min, then close the planner and lock the phone: one notification, on every device with reminders on
@@ -89,7 +89,7 @@ The first time v3 opens at the same address as v2, it copies v2's data (settings
 - [ ] *+ Block*: recurring on weekdays, one-off, one crossing midnight (23:30–00:30). *Duplicate*, *Delete*, *Undo edits*
 - [ ] Rename a block type and change its color: timeline, week, now-bar and task labels all update
 - [ ] Tasks: create one for each link type; a routine "every Gym" task resets in each Gym block
-- [ ] Let a block-linked task pass its block: it shows under *Overdue* with all five options
+- [ ] Let a block-linked task pass its block: it shows in the red *Overdue* box on top of Tasks with *Next … block* and *Reschedule…*
 - [ ] Signed in on two devices: add a task on one and it appears on the other within seconds. Airplane mode: edit, reconnect, and it syncs
 - [ ] Download backup → Import backup: nothing is duplicated
 - [ ] Close and reopen the browser: everything is still there. Settings shows "IndexedDB, protected from clean-up"
