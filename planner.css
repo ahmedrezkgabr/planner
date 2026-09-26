@@ -289,3 +289,12 @@ details.more{margin:8px 0 0;border-top:1px solid var(--line);padding-top:14px}
 details.more > summary{cursor:pointer;font-weight:600;font-size:17px;margin-bottom:16px;list-style-position:outside}
 details.more[open] > summary{margin-bottom:20px}
 .muted a,.status a{color:var(--ink);font-weight:500}
+
+/* Sign-in gate */
+body.locked > :not(.gate):not(.toast){display:none !important}
+body.locked{background:var(--paper)}
+.gate{min-height:100dvh;display:grid;place-content:center;justify-items:center;gap:6px;padding:24px 16px;text-align:center}
+.gate h1{margin:8px 0 0;font-size:28px;font-weight:600;letter-spacing:-.02em}
+.gate p{margin:0 0 10px;color:var(--muted);max-width:32ch;text-wrap:balance}
+.gate form{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;width:min(360px,100%)}
+.gate input{flex:1 1 200px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);font-size:16px}

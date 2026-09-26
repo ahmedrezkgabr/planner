@@ -614,7 +614,28 @@ $('acctSend').onclick = async () => {
   toast(error ? 'Could not send: ' + error.message : 'Check your email for the sign-in link', null, 6000);
 };
 $('acctSync').onclick = () => Sync.syncNow();
-$('acctSignOut').onclick = () => Sync.signOut();
+$('acctSignOut').onclick = async () => {
+  const n = Sync.pending();
+  if (!confirm(n ? `${n} change${n > 1 ? 's have' : ' has'} not uploaded yet and will be lost. Sign out and erase this device anyway?` : 'Sign out and erase the planner data from this device? It stays in your account.')) return;
+  await Push.disable().catch(() => {});      // this device stops getting reminders
+  await Sync.signOut().catch(() => {}); await Sync.wipe();
+  try { sessionStorage.clear(); } catch (e) {}
+  location.reload();
+};
+
+/* ---------- sign-in gate: with sync set up, nothing renders until you're signed in ---------- */
+// The session lives in localStorage; reading it directly lets a signed-in device open offline, and a signed-out one never flashes data.
+const hasSession = () => { try { return !!localStorage.getItem(`sb-${new URL(SUPABASE_URL).hostname.split('.')[0]}-auth-token`); } catch (e) { return false; } };
+function setLocked(on){ document.body.classList.toggle('locked', on); $('gate').hidden = !on; }
+$('gateForm').onsubmit = async e => {
+  e.preventDefault();
+  const email = $('gateEmail').value.trim(), msg = $('gateMsg'); if (!email) return;
+  if (!Sync.client){ await Sync.connect(); if (!Sync.client) return msg.textContent = 'You’re offline. Connect and try again.'; }
+  $('gateSend').disabled = true; msg.textContent = 'Sending…';
+  const { error } = await Sync.signIn(email);
+  $('gateSend').disabled = false;
+  msg.textContent = error ? 'No link sent. Check the address; only the planner’s owner can sign in.' : 'Check your email and open the link on this device.';
+};
 
 /* ---------- navigation ---------- */
 // Tabs: Now · Plan (Day/Week toggle) · Tasks · Stats. Settings opens from the gear.
@@ -670,6 +691,7 @@ window.addEventListener('focus', () => tick(true));
 
 /* ---------- boot ---------- */
 (async () => {
+  setLocked(Sync.configured() && !hasSession() && !/access_token|[?&]code=/.test(location.href));
   await Sync.open();
   const migrated = await Sync.migrateV2();
   load(Sync.state());
@@ -677,7 +699,7 @@ window.addEventListener('focus', () => tick(true));
   if (migrated) toast('Brought over your data from the previous version.');
 
   Sync.onRemote = st => { load(st); version++; renderAll(); if (!$('view-settings').hidden) renderSettings(); };
-  Sync.onStatus = () => { renderAccount(); renderNotifyStatus(); };
+  Sync.onStatus = () => { if (Sync.client) setLocked(!Sync.user); renderAccount(); renderNotifyStatus(); };
   Sync.connect();
   window.addEventListener('online', () => Sync.syncNow());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') Sync.syncNow(); });

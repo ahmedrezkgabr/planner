@@ -182,6 +182,9 @@ const Sync = {
     if ((u && u.id) === (this.user && this.user.id)) return;
     this.user = u; this.channel && this.client.removeChannel(this.channel); this.channel = null;
     if (u){
+      // This device held someone else's data (their session ended without a sign-out): wipe it rather than upload it into this account.
+      if (this.meta.owner && this.meta.owner !== u.id){ this.user = null; this.wipe().then(() => location.reload()); return; }
+      if (!this.meta.owner) this.setMeta('owner', u.id);
       // Realtime: the other device's edits arrive within a second or two.
       this.channel = this.client.channel('records')
         .on('postgres_changes', { event:'*', schema:'public', table:'records', filter:`user_id=eq.${u.id}` }, p => this.incoming([p.new]))
@@ -191,8 +194,14 @@ const Sync = {
     this.onStatus();
   },
   async incoming(rows){ if (await this.apply(rows)) this.onRemote(this.state()); },
-  signIn(email){ return this.client.auth.signInWithOtp({ email, options:{ emailRedirectTo:location.origin + location.pathname } }); },
+  // Existing accounts only: nobody can create an account on this project from the sign-in box.
+  signIn(email){ return this.client.auth.signInWithOtp({ email, options:{ emailRedirectTo:location.origin + location.pathname, shouldCreateUser:false } }); },
   signOut(){ return this.client.auth.signOut(); },
+  // Sign-out leaves nothing readable on the device.
+  async wipe(){
+    this.recs.clear(); this.meta = {};
+    await this.write((r, m) => { r.clear(); m.clear(); });
+  },
   pending(){ let n = 0; for (const r of this.recs.values()) if (r.dirty) n++; return n; },
 
   async syncNow(){

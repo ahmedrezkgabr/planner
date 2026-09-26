@@ -20,6 +20,14 @@ flexible_weekly_planner.xlsx          your original, untouched
 flexible_weekly_planner_v2.xlsx       v2 export template (no longer read by the app)
 ```
 
+## Security
+
+- **Your data** is only readable when signed in as you: every table has row-level security (`user_id = auth.uid()`), and anonymous requests get `[]`.
+- **The app** shows a sign-in screen until you're signed in. Signing out erases the planner data from that device and stops its reminders. If a device ever gets a different account's session, it wipes the old data instead of uploading it.
+- **Accounts:** the sign-in box never creates accounts (`shouldCreateUser:false`). Also turn off *Allow new users to sign up* in Supabase → Authentication → Sign In / Providers.
+- **The page** has a Content-Security-Policy: scripts only from this site and jsDelivr (supabase-js), connections only to your Supabase project.
+- **Public by design:** the code, including the default weekly template in `js/schedule.js`, and the publishable key, which only works together with row-level security.
+
 ## Architecture
 
 **Local-first PWA with Supabase sync.** Every edit is saved to IndexedDB first, so the app works offline. When you're signed in, changes upload about a second later, and the other device receives them live. If both devices change the same thing, the later edit wins. Deletes sync too. Excel has been removed: *Settings → Download backup* gives you a JSON file of everything.

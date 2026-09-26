@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- theme-color follows the current block, so an installed app's status bar turns the block's color too -->
 <meta name="theme-color" content="#1F2A37" id="themeColor">
+<!-- Only this site, the Supabase project, the supabase-js CDN and Google Fonts can load or receive anything. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://tohbcduymsuaqivuabei.supabase.co wss://tohbcduymsuaqivuabei.supabase.co; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
 <title>Planner</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
@@ -19,6 +23,15 @@
 
 <!-- Persistent current-block indicator. Visible on every tab; tap it to open the dashboard. -->
 <button class="nowbar" id="nowbar" type="button" aria-live="polite" aria-label="Current block, open dashboard"></button>
+
+<!-- Sign-in gate: shown instead of the app until you're signed in. -->
+<main class="gate" id="gate" hidden>
+  <img src="icons/icon.svg" alt="" width="56" height="56">
+  <h1>Planner</h1>
+  <p>Sign in to open your planner. You’ll get a link by email.</p>
+  <form id="gateForm"><input id="gateEmail" type="email" required autocomplete="email" placeholder="Your email" aria-label="Email"><button class="btn primary" id="gateSend">Email me a link</button></form>
+  <p class="muted" id="gateMsg" role="status"></p>
+</main>
 
 <div class="wrap" id="wrap">
   <header>
