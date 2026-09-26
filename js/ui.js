@@ -206,7 +206,7 @@ function renderDay(){
     const s = document.createElement('div'); s.className = 'h' + (m >= 1200 ? ' late' : '');
     s.style.top = ((m - T0) * ppm) + 'px'; s.textContent = (m/60) % 24 === 0 ? '24' : String(m/60); g.appendChild(s);
   }
-  const S = norm(plan.settings);
+  const S = norm(daySettings(plan, date));
   ['dhuhr','asr','maghrib','isha'].forEach(k => { const p = document.createElement('div'); p.className = 'p'; p.style.top = ((S[k] - T0) * ppm) + 'px'; g.appendChild(p); });
   const t = $('track'); t.innerHTML = ''; t.style.height = H + 'px';
   const doneSet = new Set(blockDone[iso] || []), cur = status(plan, Date.now()).current;
@@ -473,7 +473,8 @@ function renderBudget(){
 
 /* ---------- Settings (original fields + notifications, block types, data) ---------- */
 const FIELDS = [
-  {group:'Prayer times', hint:'Approximate for Mansoura in mid-September 2026. Update them from your app or mosque each month; everything below moves with them.',
+  {group:'Prayer times', auto:true, hint:'Typed by hand. Turn on automatic times, or update them from your app or mosque each month; everything below moves with them.',
+   autoHint:'Calculated for each day from your location (Egyptian General Authority method). Today\'s times are shown; everything below moves with them.',
    items:[['fajr','Fajr'],['dhuhr','Dhuhr'],['asr','Asr'],['maghrib','Maghrib'],['isha','Isha']], type:'time'},
   {group:'Sleep', hint:'7.5 h on work nights, 8.5 h before a day off.',
    items:[['wakeWork','Wake, workday'],['bedWork','Lights out before a workday'],['wakeOff','Wake, day off'],['bedOff','Lights out before a day off']], type:'time'},
@@ -485,11 +486,32 @@ const FIELDS = [
           ['learnWork','Learning, workday'],['startupWork','Startup, workday'],['startupSat','Startup, Saturday morning'],['learnSat','Learning, Saturday'],['readFri','Reading, Friday'],
           ['nap','Friday rest'],['leisure','Leisure'],['planning','Weekly review'],['windDown','Wind-down'],['offsetWork','Offset after work'],['offsetShort','Short offset']], type:'number'},
 ];
+// Auto prayer times: a switch, "Use my location", or a typed latitude/longitude.
+function prayerControls(){
+  const s = plan.settings, loc = s.location || {}, box = document.createElement('div'); box.className = 'prayer-auto';
+  box.innerHTML = `<label class="check"><input type="checkbox" ${s.prayerAuto ? 'checked' : ''}> Automatic, from my location</label>` +
+    `<div class="grid"><label>Latitude<input type="number" step="any" min="-90" max="90" inputmode="decimal" value="${loc.lat ?? ''}"></label>` +
+    `<label>Longitude<input type="number" step="any" min="-180" max="180" inputmode="decimal" value="${loc.lng ?? ''}"></label></div>` +
+    `<button type="button" class="btn">Use my location</button> <span class="muted"></span>`;
+  const [on, lat, lng] = box.querySelectorAll('input'), btn = box.querySelector('button'), msg = box.querySelector('span.muted');
+  const setLoc = (a, b) => { if (!(Math.abs(a) <= 90 && Math.abs(b) <= 180)) return msg.textContent = 'Enter both, as decimal degrees.';
+    plan.settings = {...plan.settings, location:{ lat:+(+a).toFixed(4), lng:+(+b).toFixed(4) }, prayerAuto:true}; changed('settings'); renderSettings(); };
+  on.onchange = () => { if (on.checked && !s.location){ on.checked = false; return msg.textContent = 'Set a location first.'; } update('prayerAuto', on.checked); };
+  lat.onchange = lng.onchange = () => { if (lat.value !== '' && lng.value !== '') setLoc(lat.value, lng.value); };
+  btn.onclick = () => {
+    if (!navigator.geolocation) return msg.textContent = 'Location is not available here. Type it instead.';
+    msg.textContent = 'Locating…';
+    navigator.geolocation.getCurrentPosition(p => setLoc(p.coords.latitude, p.coords.longitude),
+      e => msg.textContent = e.code === 1 ? 'Location permission was denied. Type it instead.' : 'Could not get a location. Type it instead.', { timeout:15000 });
+  };
+  return box;
+}
 function renderSettings(){
-  const f = $('settingsForm'); f.innerHTML = '';
+  const f = $('settingsForm'), auto = prayerTimesFor(plan.settings, new Date()); f.innerHTML = '';
   FIELDS.forEach(g => {
     const fs = document.createElement('fieldset');
-    fs.innerHTML = `<legend>${g.group}</legend><p>${g.hint}</p>`;
+    fs.innerHTML = `<legend>${g.group}</legend><p>${g.auto && plan.settings.prayerAuto ? g.autoHint : g.hint}</p>`;
+    if (g.auto) fs.appendChild(prayerControls());
     if (g.type === 'toggle'){
       const seg = document.createElement('div'); seg.className = 'seg';
       ['afternoon','evening'].forEach(v => { const b = document.createElement('button'); b.textContent = v[0].toUpperCase() + v.slice(1);
@@ -499,7 +521,8 @@ function renderSettings(){
       const grid = document.createElement('div'); grid.className = 'grid';
       g.items.forEach(([k, label]) => {
         const l = document.createElement('label'); l.textContent = label;
-        const inp = document.createElement('input'); inp.type = g.type; inp.value = plan.settings[k];
+        const inp = document.createElement('input'); inp.type = g.type; inp.value = (g.auto && auto[k]) || plan.settings[k];
+        if (g.auto && auto[k]) inp.disabled = true;
         if (g.type === 'number'){ inp.min = 0; inp.step = 5; inp.inputMode = 'numeric'; }
         inp.onchange = () => { const v = g.type === 'number' ? Math.max(0, Number(inp.value) || 0) : inp.value; if (v === '') return; update(k, v); };
         l.appendChild(inp); grid.appendChild(l);
@@ -511,7 +534,7 @@ function renderSettings(){
   renderCats(); renderNotifyStatus(); renderBackup();
 }
 function update(k, v){ plan.settings = {...plan.settings, [k]: v}; changed('settings'); renderSettings(); }
-$('reset').onclick = () => { if (!confirm('Reset prayer times, sleep, work and block lengths to the original plan? Tasks and block edits are kept.')) return; plan.settings = {...DEFAULTS}; changed('settings'); renderSettings(); };
+$('reset').onclick = () => { if (!confirm('Reset prayer times, sleep, work and block lengths to the original plan? Tasks and block edits are kept.')) return; plan.settings = {...DEFAULTS, location:plan.settings.location, prayerAuto:plan.settings.prayerAuto}; changed('settings'); renderSettings(); };
 $('resetEdits').onclick = () => {
   if (!confirm('Remove every edit to the generated blocks (moves, renames, deletions) and delete your own blocks? Tasks linked to your own blocks stay, marked “Removed block”.')) return;
   plan.overrides = { weekly:{}, dated:{} }; plan.customBlocks = []; changed('overrides', 'customBlocks');

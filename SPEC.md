@@ -118,9 +118,9 @@ create table google_tokens (user_id uuid primary key, refresh_token text, calend
 - The tick function runs the Google step at most every 5 minutes. For rows where `hash != gcal_hash`: insert or patch the event (`colorId` is the nearest Google color to the category color, `reminders.useDefault=false` because push handles alerts). For `deleted` rows with a `gcal_id`: delete the event. Then set `gcal_hash`.
 - *Disconnect* revokes the token and deletes the "Planner" calendar.
 
-## 7. Prayer times (`js/prayer.js`, new)
+## 7. Prayer times (`prayerTimesFor` in `js/schedule.js`)
 
-- Vendored `adhan` (MIT, a single file, around 30 KB) in `vendor/adhan.js`, with `CalculationMethod.Egyptian()`. It runs offline.
+- About 20 lines of standard solar-position math (Fajr 19.5°, Isha 17.5°, Asr shadow 1, Dhuhr +1 min), with no vendored library. It runs offline and matches adhan's `CalculationMethod.Egyptian()` within ±1 min all year in Egypt (checked in a scratch script, with a pinned case in `tests/check.js`). There is no high-latitude rule: a prayer with no solution keeps its manual time. Per-prayer ± adjustments were skipped.
 - `prayerTimesFor(settings, date)` returns `{fajr,dhuhr,asr,maghrib,isha}` as `HH:MM` after the per-prayer ± minute adjustments. When `prayerAuto` is on, `buildDay` uses `norm({...plan.settings, ...prayerTimesFor(plan.settings, date)})`. That's a one-line change in `schedule.js`, and the chain slides as it does today.
 - Location: Settings → *Use my location* (`navigator.geolocation`, run once and stored in settings) or a manual latitude/longitude. The manual times stay available when auto is off.
 
@@ -189,7 +189,7 @@ A *Stats* view with a week picker:
 | `js/notify.js` | keep `upcomingReminders`; add `materialize`; delete `dueReminders`, `pruneLog`, `buildICS` and the in-page `Notify.show` path |
 | `js/store.js` | **delete** → `js/sync.js` |
 | `js/excel.js`, `vendor/exceljs.min.js` | **delete** |
-| `js/prayer.js`, `vendor/adhan.js`, `js/habits.js` | new |
+| `js/habits.js` | new |
 | `js/ui.js` | new nav, views for Habits and Stats, quick add, timer, gradient, sign-in/connect screens; delete Excel, ICS and reminder-loop code |
 | `sw.js` | new SHELL list; `push` + `notificationclick` handlers; `VERSION` bump |
 | `supabase/migrations/001_init.sql` | tables, RLS, triggers, pg_cron job |
@@ -227,7 +227,7 @@ Multi-user or sharing, Excel, two-way Google sync, Outlook, native apps, and edi
 1. **Sync foundation:** schema, `sync.js`, auth, migration, JSON backup. Delete Excel. Tests for the round-trip and LWW.
 2. **Push reminders:** `materialize`, the tick function, sw push, per-device subscribe. Delete the old reminder loop.
 3. **UX:** bottom nav, phone layout, gradient background, quick add, dark mode.
-4. **Prayer times:** adhan, location, auto/manual.
+4. **Prayer times:** location, auto/manual. Done.
 5. **Habits + timers.**
 6. **Stats** (replaces Budget).
 7. **Google Calendar.**

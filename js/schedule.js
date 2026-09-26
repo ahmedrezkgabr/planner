@@ -27,6 +27,29 @@ const DEFAULTS = {
 const TIME_KEYS = ['fajr','dhuhr','asr','maghrib','isha','wakeWork','bedWork','wakeOff','bedOff','workStart','workEnd'];
 const toMin = t => { const [h,m] = String(t).split(':').map(Number); return h*60+m; };
 const fromMin = m => { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); };
+/* ---------- automatic prayer times (Egyptian General Authority: Fajr 19.5°, Isha 17.5°, Asr shadow 1) ----------
+   Standard solar-position formulas (as in PrayTimes/adhan); checked against adhan in tests/check.js to ±1 min.
+   ponytail: no high-latitude rule. Above ~48° a summer Isha/Fajr has no solution; that prayer then keeps its manual time. */
+function prayerTimesFor(s, date){
+  if (!s.prayerAuto || !s.location) return {};
+  const rad = Math.PI / 180, { lat, lng } = s.location;
+  const d = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12) / 864e5 - 10957.5;   // days since J2000
+  const g = (357.529 + 0.98560028 * d) * rad, q = 280.459 + 0.98564736 * d;
+  const L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad, e = (23.439 - 0.00000036 * d) * rad;
+  const decl = Math.asin(Math.sin(e) * Math.sin(L)), ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)) / rad / 15;
+  const eqt = q / 15 - ((ra % 24) + 24) % 24, noon = 12 - lng / 15 - (((eqt + 12) % 24) + 24) % 24 + 12;   // UTC hours
+  const span = alt => Math.acos((Math.sin(alt * rad) - Math.sin(decl) * Math.sin(lat * rad)) / (Math.cos(decl) * Math.cos(lat * rad))) / rad / 15;
+  const asrAlt = Math.atan(1 / (1 + Math.tan(Math.abs(lat * rad - decl)))) / rad;
+  const utc = { fajr:noon - span(-19.5), dhuhr:noon + 1/60, asr:noon + span(asrAlt), maghrib:noon + span(-0.833), isha:noon + span(-17.5) };
+  const out = {};
+  for (const [k, h] of Object.entries(utc)) if (isFinite(h)){
+    const t = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) + Math.round(h * 60) * 60000);
+    out[k] = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');   // device time zone, DST included
+  }
+  return out;
+}
+const daySettings = (plan, date) => ({ ...plan.settings, ...prayerTimesFor(plan.settings, date) });
+
 function norm(s){
   const n = {};
   for (const k in DEFAULTS){ const v = s[k] ?? DEFAULTS[k]; n[k] = TIME_KEYS.includes(k) ? toMin(v) : (k==='gymSlot' ? v : Number(v)); }
@@ -202,7 +225,7 @@ function customOn(c, iso, dow){ return c.date ? c.date === iso : (c.days || []).
 // All blocks of one date, hidden ones included (flagged). Each block gets date, startAt, endAt.
 function buildDay(plan, date){
   const dow = date.getDay(), iso = isoDate(date), ov = overridesFor(plan, iso);
-  const blocks = DAYS[dow].build(norm(plan.settings), ov);
+  const blocks = DAYS[dow].build(norm(daySettings(plan, date)), ov);
   for (const c of plan.customBlocks){
     if (!customOn(c, iso, dow)) continue;
     const o = ov[c.id] || {}, start = o.start ?? c.start, end = o.hidden ? start : fixEnd(start, o.end ?? c.end);

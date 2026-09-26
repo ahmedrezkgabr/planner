@@ -268,3 +268,6 @@ dialog::backdrop{background:rgba(31,42,55,.45)}
   .wrap{padding-left:16px;padding-right:16px}
   .dayhead .toolbar{margin-left:0;width:100%}
 }
+.prayer-auto{display:grid;gap:10px;justify-items:start;margin:0 0 14px}
+.prayer-auto .grid{justify-self:stretch}
+.prayer-auto .check{display:flex;gap:8px;align-items:center}

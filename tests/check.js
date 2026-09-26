@@ -1,7 +1,7 @@
 // Logic self-check: node tests/check.js  (no dependencies)
 process.env.TZ = 'Africa/Cairo';
 const fs = require('fs'), vm = require('vm'), path = require('path'), assert = require('assert');
-const ctx = vm.createContext({ console, structuredClone, Date, Math, JSON, Number, String, Set, Map, Array, Object, setTimeout, clearTimeout });
+const ctx = vm.createContext({ console, structuredClone, Date, Math, isFinite, JSON, Number, String, Set, Map, Array, Object, setTimeout, clearTimeout });
 for (const f of ['schedule.js', 'tasks.js', 'notify.js', 'sync.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'), ctx);
 const run = code => vm.runInContext(code, ctx);
 const at = (iso, hhmm) => run(`atMin('${iso}', toMin('${hhmm}'))`);
@@ -36,6 +36,18 @@ assert.equal(st(at('2026-09-27', '00:10')).current.id, 'c-late');
 run(`plan.settings.bedWork = '00:30'`);
 assert.equal(run(`fromMin(buildDay(plan, parseISO('2026-09-28')).find(b => b.cat === 'Sleep').start)`), '00:30');
 run(`plan.settings.bedWork = '23:00'`);
+
+// Auto prayer times: Mansoura, Egyptian method, matches adhan (05:18 12:46 16:10 18:45 20:03, summer time) within 1 min.
+{
+  const p = run(`prayerTimesFor({ prayerAuto:true, location:{ lat:31.04, lng:31.38 } }, parseISO('2026-09-27'))`);
+  const ref = { fajr:'05:18', dhuhr:'12:46', asr:'16:10', maghrib:'18:45', isha:'20:03' };
+  for (const k in ref) assert.ok(Math.abs(run(`toMin('${p[k]}') - toMin('${ref[k]}')`)) <= 1, `${k} ${p[k]} vs ${ref[k]}`);
+  assert.deepEqual(JSON.parse(JSON.stringify(run(`prayerTimesFor({ prayerAuto:false, location:{ lat:31, lng:31 } }, new Date())`))), {}, 'off: manual times');
+  run(`plan.settings.prayerAuto = true; plan.settings.location = { lat:31.04, lng:31.38 }`);
+  const gym = run(`buildDay(plan, parseISO('2026-09-27')).find(b => b.id === 'Sun:gym')`);
+  assert.equal(run(`fromMin(${gym.end})`), '18:35', 'gym ends 10 min before the calculated Maghrib');
+  run(`delete plan.settings.prayerAuto; delete plan.settings.location`);
+}
 
 // Reminders: materialize() rows for the push server.
 {

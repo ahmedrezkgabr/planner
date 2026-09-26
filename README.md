@@ -84,6 +84,7 @@ The first time v3 opens at the same address as v2, it copies v2's data (settings
 - [ ] Settings → Reminders → Send a test, then close the planner: one notification within a minute
 - [ ] Set a block type's lead so a reminder is due in 2–3 min, then close the planner and lock the phone: one notification, on every device with reminders on
 - [ ] Turn a block type's reminder off: no notification
+- [ ] Settings → Prayer times → *Use my location*: the five times fill in and lock, and the Plan's chain moves. Untick it to get your typed times back
 - [ ] Day → *Edit schedule* → move Lunch: the following blocks slide and prayers stay put. Try "Only this date" and "Every Sunday"
 - [ ] *+ Block*: recurring on weekdays, one-off, one crossing midnight (23:30–00:30). *Duplicate*, *Delete*, *Undo edits*
 - [ ] Rename a block type and change its color: timeline, week, now-bar and task labels all update
