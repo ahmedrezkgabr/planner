@@ -1,3 +1,6 @@
 node_modules/
 .env
 supabase/local/
+# your original planner files: kept on disk, not published
+flexible_weekly_planner*.html
+flexible_weekly_planner*.xlsx
