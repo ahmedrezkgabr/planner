@@ -14,7 +14,9 @@ supabase/migrations/    database schema: run 001_init.sql once
 js/ui.js                rendering, dialogs, the 15 s now-bar tick, boot
 sw.js, manifest.webmanifest, icons/   PWA: offline, installable, shows push reminders
 supabase/functions/tick/   edge function: sends due reminders as Web Push (pg_cron, every minute)
+js/habits.js            habits (streaks, rates) and timers                               (no DOM)
 tests/check.js          logic self-check:  node tests/check.js
+tests/e2e.js            browser checks:    npm i --no-save playwright && node tests/e2e.js
 flexible_weekly_planner.html          your original, untouched (backup)
 flexible_weekly_planner.xlsx          your original, untouched
 flexible_weekly_planner_v2.xlsx       v2 export template (no longer read by the app)
@@ -86,7 +88,7 @@ The first time v3 opens at the same address as v2, it copies v2's data (settings
 
 ## Testing checklist
 
-- [ ] `node tests/check.js` prints "all checks passed"
+- [ ] `node tests/check.js` prints "all checks passed", and `node tests/e2e.js` prints "all browser checks passed" (gate, persistence, habits and timers)
 - [ ] Now shows one card: the current block, time left, progress and what's next. On the other tabs a slim bar keeps the current block in view; the phone status bar matches when installed
 - [ ] Leave the tab open across a block boundary: the bar and dashboard change with no refresh
 - [ ] Settings → Reminders → Send a test, then close the planner: one notification within a minute
@@ -99,6 +101,9 @@ The first time v3 opens at the same address as v2, it copies v2's data (settings
 - [ ] Tasks: create one for each link type; a routine "every Gym" task resets in each Gym block
 - [ ] Let a block-linked task pass its block: it shows in the red *Overdue* box on top of Tasks with *Next … block* and *Reschedule…*
 - [ ] Signed in on two devices: add a task on one and it appears on the other within seconds. Airplane mode: edit, reconnect, and it syncs
+- [ ] Tasks → Habits: add one for every day and one for Mondays only. On Now, only today's show; tick one and it stays ticked after a refresh. The row shows "n in a row" and a 12-week grid
+- [ ] Now → *Track time* on the current block: a timer pill appears on every tab and stops by itself when the block ends. ▶ on a task switches the timer to the task; after stopping, the task shows "25 min / 30 min est"
+- [ ] Start a timer on the phone: the laptop shows it running
 - [ ] Download backup → Import backup: nothing is duplicated
 - [ ] Close and reopen the browser: everything is still there. Settings shows "IndexedDB, protected from clean-up"
 - [ ] Airplane mode on an installed phone app: it still opens and works

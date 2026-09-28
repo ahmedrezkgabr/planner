@@ -20,7 +20,8 @@
 const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 
 // ui.js state key → record collection
-const COLLS = { settings:'settings', categories:'category', customBlocks:'customBlock', overrides:'override', tasks:'task', blockDone:'blockDone' };
+const COLLS = { settings:'settings', categories:'category', customBlocks:'customBlock', overrides:'override', tasks:'task', blockDone:'blockDone',
+                habits:'habit', habitLog:'habitLog', timeEntries:'timeEntry' };
 const PLAN_COLLS = new Set(['settings', 'category', 'customBlock', 'override']);   // changes here re-materialize reminders
 
 /* ---------- state <-> records (pure, tested) ---------- */
@@ -32,6 +33,9 @@ function toRecords(key, v){
     case 'categories':   Object.assign(o, v); break;
     case 'customBlocks': for (const c of v) o[c.id] = c; break;
     case 'tasks':        for (const t of v) o[t.id] = t; break;
+    case 'habits':       for (const h of v) o[h.id] = h; break;
+    case 'habitLog':     for (const k in v) o[k] = { done:true }; break;           // an untick is a tombstone
+    case 'timeEntries':  for (const e of v) o[e.id] = e; break;
     case 'overrides':
       for (const [id, f] of Object.entries(v.weekly)) o['w:' + id] = f;
       for (const [iso, m] of Object.entries(v.dated)) for (const [id, f] of Object.entries(m)) o[`d:${iso}:${id}`] = f;
@@ -41,7 +45,7 @@ function toRecords(key, v){
   return o;
 }
 function toState(recs){
-  const s = { settings:{...DEFAULTS}, categories:structuredClone(DEFAULT_CATEGORIES), customBlocks:[], overrides:{weekly:{}, dated:{}}, tasks:[], blockDone:{} };
+  const s = { settings:{...DEFAULTS}, categories:structuredClone(DEFAULT_CATEGORIES), customBlocks:[], overrides:{weekly:{}, dated:{}}, tasks:[], blockDone:{}, habits:[], habitLog:{}, timeEntries:[] };
   for (const r of recs){
     if (r.deleted || !r.data) continue;
     const d = structuredClone(r.data);   // a copy: the UI edits state in place, and save() diffs it against the stored record
@@ -50,6 +54,9 @@ function toState(recs){
       case 'category':    s.categories[r.id] = d; break;
       case 'customBlock': s.customBlocks.push(d); break;
       case 'task':        s.tasks.push(d); break;
+      case 'habit':       s.habits.push(d); break;
+      case 'habitLog':    s.habitLog[r.id] = true; break;
+      case 'timeEntry':   s.timeEntries.push(d); break;
       case 'override': {
         if (r.id.startsWith('w:')) s.overrides.weekly[r.id.slice(2)] = d;
         else { const iso = r.id.slice(2, 12), id = r.id.slice(13); (s.overrides.dated[iso] ||= {})[id] = d; }
@@ -60,6 +67,8 @@ function toState(recs){
   }
   s.customBlocks.sort((a, b) => a.id.localeCompare(b.id));
   s.tasks.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+  s.habits.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  s.timeEntries.sort((a, b) => a.start.localeCompare(b.start));
   return s;
 }
 // Should a remote copy replace the local one? Newer wins; on a tie the local copy stays (same write, or local unpushed edits).

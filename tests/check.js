@@ -2,7 +2,7 @@
 process.env.TZ = 'Africa/Cairo';
 const fs = require('fs'), vm = require('vm'), path = require('path'), assert = require('assert');
 const ctx = vm.createContext({ console, structuredClone, Date, Math, isFinite, JSON, Number, String, Set, Map, Array, Object, setTimeout, clearTimeout });
-for (const f of ['schedule.js', 'tasks.js', 'notify.js', 'sync.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'), ctx);
+for (const f of ['schedule.js', 'tasks.js', 'habits.js', 'notify.js', 'sync.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'), ctx);
 const run = code => vm.runInContext(code, ctx);
 const at = (iso, hhmm) => run(`atMin('${iso}', toMin('${hhmm}'))`);
 ctx.plan = run('emptyPlan()');
@@ -104,10 +104,42 @@ assert.deepEqual(run('tasksForNow([t, t2], status(plan, ms), ms).map(x => x.titl
   assert.deepEqual(Q('Nothing now').link.type, 'block', 'at 3am it is Sleep');
 }
 
+// Habits: a streak counts scheduled days only; an unticked today doesn't break it; a missed scheduled day does.
+{
+  ctx.h = { id:'h1', name:'Stretch', days:[1,3,5], createdAt:'2026-09-01T06:00:00.000Z' };   // Mon, Wed, Fri
+  const L = o => { ctx.log = Object.fromEntries(o.map(d => ['h1|' + d, true])); };
+  const S = today => run(`streak(h, log, '${today}')`);
+  L(['2026-09-21', '2026-09-23', '2026-09-25']);               // Mon Wed Fri
+  assert.equal(S('2026-09-27'), 3, 'weekend (days off) does not break it');
+  assert.equal(S('2026-09-28'), 3, 'Monday unticked so far: still 3');
+  L(['2026-09-21', '2026-09-25', '2026-09-28']);               // missed Wed
+  assert.equal(S('2026-09-28'), 2, 'a missed scheduled day breaks it');
+  L([]); assert.equal(S('2026-09-28'), 0);
+  L(['2026-09-21', '2026-09-23']);
+  assert.equal(run(`rate(h, log, '2026-09-21', '2026-09-27')`), 2/3);
+  assert.equal(run(`rate(h, log, '2026-09-26', '2026-09-27')`), null, 'nothing scheduled');
+  assert.equal(run(`habitsDue([h], '2026-08-31').length`), 0, 'not before it was created');
+}
+
+// Timers: one at a time; starting another stops the first; a sub-minute tap leaves no entry.
+{
+  ctx.E = []; const t0 = Date.parse('2026-09-28T10:00:00Z');
+  run(`startTimer(E, { label:'Report', taskId:'t1' }, ${t0})`);
+  run(`startTimer(E, { label:'Gym', cat:'Gym' }, ${t0 + 30 * 60000})`);
+  assert.equal(ctx.E.length, 2); assert.equal(ctx.E[0].end, '2026-09-28T10:30:00.000Z'); assert.equal(run('running(E).label'), 'Gym');
+  assert.equal(run(`trackedMin(E, e => e.taskId === 't1', ${t0 + 99 * 60000})`), 30);
+  assert.equal(run(`Math.round(trackedMin(E, e => e.cat === 'Gym', ${t0 + 45 * 60000}))`), 15, 'running entry counts up to now');
+  run(`stopTimer(E, ${t0 + 45 * 60000})`); assert.equal(run('running(E)'), null);
+  run(`startTimer(E, { label:'Oops' }, ${t0 + 50 * 60000}); stopTimer(E, ${t0 + 50 * 60000 + 20000})`);
+  assert.equal(ctx.E.length, 2, 'accidental tap dropped');
+}
+
 // Sync: state -> records -> state round-trips, including dated overrides on ids with colons.
 run(`plan.overrides.dated['2026-09-27'] = { 'Sun:gym': { start: toMin('17:00') } }`);
 ctx.state = { settings:ctx.plan.settings, categories:ctx.plan.categories, customBlocks:ctx.plan.customBlocks, overrides:ctx.plan.overrides,
-              tasks:[ctx.t, ctx.t2], blockDone:{ '2026-09-20':['Sun:fajr', 'Sun:gym'] } };
+              tasks:[ctx.t, ctx.t2], blockDone:{ '2026-09-20':['Sun:fajr', 'Sun:gym'] },
+              habits:[{ id:'hA', name:'Read', days:[1,3], createdAt:'2026-09-01T08:00:00.000Z' }], habitLog:{ 'hA|2026-09-21':true },
+              timeEntries:[{ id:'e1', label:'Gym', cat:'Gym', blockKey:'Sun:gym|2026-09-20', start:'2026-09-20T14:00:00.000Z', end:null }] };
 const recs = run(`Object.entries(COLLS).flatMap(([k, c]) => Object.entries(toRecords(k, state[k])).map(([id, data]) => ({ collection:c, id, data })))`);
 assert.ok(recs.some(r => r.id === 'd:2026-09-27:Sun:gym'));
 ctx.recs = recs;

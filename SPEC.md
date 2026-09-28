@@ -130,12 +130,12 @@ create table google_tokens (user_id uuid primary key, refresh_token text, calend
 - A habit repeats on chosen weekdays. It is ticked once per day in `habitLog`.
 - `streak(habit, logs, todayIso)` counts consecutive *scheduled* days that were done. Today doesn't break the streak until the day ends.
 - `rate(habit, logs, fromIso, toIso)` gives done ÷ scheduled.
-- UI: a *Habits* view lists today's habits as big tap targets with the streak (🔥 n) and a 12-week dot grid per habit. The Now view shows today's unticked habits under the tasks.
+- UI (built): today's habits are tick pills on Now. Tasks → *Habits* lists every habit with "n in a row" and a 12-week grid, adds new ones (name + weekdays) and edits or deletes them. There's no separate tab, so the bar stays at 4.
 
 **Timers:**
 - One timer runs at a time. Start it from a task (▶ in `taskItem`) or from the current block card in Now. Starting another one stops the running timer.
 - A running timer is a `timeEntry` with `end:null`, so it syncs and the other device shows it running. It survives reloads.
-- The now-bar shows the running timer (`▶ 12:34 Write report`).
+- The running timer is a pill on every tab (label, elapsed, Stop). A block timer stops by itself at the block's end. A tap under a minute leaves no entry.
 - Tasks show actual time next to the estimate (`35m / 20m est`).
 
 ## 9. Stats (replaces the Budget view)

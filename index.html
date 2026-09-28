@@ -53,6 +53,7 @@
   <section id="view-now">
     <div class="dash">
       <div class="card cur" id="dCur"></div>
+      <div class="card span" id="dHabits" hidden><h3>Habits today</h3><div class="pills" id="dHabitPills"></div></div>
       <div class="card span">
         <h3 id="dTasksTitle">Tasks for this block</h3>
         <ul class="tlist" id="dTasks"></ul>
@@ -106,6 +107,11 @@
     <div class="overdue" id="overdueBox" hidden><h3 id="overdueTitle">Overdue</h3><ul class="tlist" id="overdueList"></ul></div>
     <div class="filters" id="filters" role="group" aria-label="Task views"></div>
     <ul class="tlist" id="taskView"></ul>
+    <div id="habitView" hidden>
+      <ul class="hlist" id="habitList"></ul>
+      <div class="task-add"><input id="habitName" type="text" placeholder="New habit, e.g. Read 10 pages" maxlength="80" aria-label="New habit" enterkeyhint="done" autocomplete="off"><button class="btn" id="habitAdd">Add</button></div>
+      <div class="daypick" id="habitDays" role="group" aria-label="Repeat on"></div>
+    </div>
   </section>
 
   <section id="view-budget" hidden>
@@ -210,11 +216,30 @@
   </form>
 </dialog>
 
+<!-- Running timer: visible on every tab -->
+<div class="timer" id="timer" role="status" hidden><span class="rec" aria-hidden="true"></span><span class="lbl" id="timerLabel"></span><span class="el" id="timerEl"></span><button type="button" id="timerStop" class="btn sm">Stop</button></div>
+
+<!-- Habit editor -->
+<dialog id="habitDlg">
+  <form method="dialog" class="dlg" id="habitForm">
+    <h3>Edit habit</h3>
+    <label>Name <input name="name" required maxlength="80"></label>
+    <div class="muted" style="font-size:13px">Repeat on</div>
+    <div class="daypick" id="hdDays"></div>
+    <div class="row">
+      <button class="btn primary" value="save">Save</button>
+      <button class="btn danger" value="delete" formnovalidate>Delete</button>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <div class="toast" id="toast" role="status" hidden></div>
 
 <!-- Load order matters: logic first (no DOM), then UI. Plain scripts, not modules, so the page still opens by double-click. -->
 <script src="js/schedule.js"></script>
 <script src="js/tasks.js"></script>
+<script src="js/habits.js"></script>
 <script src="js/notify.js"></script>
 <script src="js/config.js"></script>
 <script src="js/sync.js"></script>

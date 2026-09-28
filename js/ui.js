@@ -8,6 +8,7 @@
 /* ---------- state ---------- */
 let plan = emptyPlan();
 let tasks = [];
+let habits = [], habitLog = {}, timeEntries = [];
 let blockDone = {};                 // { 'YYYY-MM-DD': [blockId] }  (was: block indexes, which broke when blocks moved)
 let prefs = { lastExport:null };
 let selected = new Date().getDay(), weekOffset = 0, editMode = false, taskFilter = 'now';
@@ -27,10 +28,12 @@ const todayIdx = () => new Date().getDay();
 const dateFor = idx => addDays(new Date(), idx - todayIdx() + 7*weekOffset);
 const dayLabel = iso => parseISO(iso).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
 const touch = t => { t.updatedAt = new Date().toISOString(); };
+const svg = d => `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor">${d}</svg>`;
+const ICON_PLAY = svg('<path d="M8 5.5v13l10.5-6.5z"/>'), ICON_STOP = svg('<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>');
 
 /* ---------- persistence (sync.js) ----------
    Synced: the plan, tasks and done ticks. Device-only: prefs. */
-const stateOf = () => ({ settings:plan.settings, categories:plan.categories, customBlocks:plan.customBlocks, overrides:plan.overrides, tasks, blockDone });
+const stateOf = () => ({ settings:plan.settings, categories:plan.categories, customBlocks:plan.customBlocks, overrides:plan.overrides, tasks, blockDone, habits, habitLog, timeEntries });
 async function save(...keys){
   try {
     await Sync.save(keys, stateOf());
@@ -40,7 +43,7 @@ async function save(...keys){
 }
 function load(st){
   plan.settings = st.settings; plan.categories = st.categories; plan.customBlocks = st.customBlocks; plan.overrides = st.overrides;
-  tasks = st.tasks; blockDone = st.blockDone;
+  tasks = st.tasks; blockDone = st.blockDone; habits = st.habits; habitLog = st.habitLog; timeEntries = st.timeEntries;
 }
 function changed(...keys){ version++; save(...keys); renderAll(); }
 
@@ -80,8 +83,16 @@ function renderDash(st, now){
     ? `<p class="big">${esc(c.name)}</p><div class="rem">${inMin(c.endAt - now)} left <span class="sub">· until ${fmt(c.end)}</span></div>` +
       `<span class="bar"><i style="width:${Math.min(100, (now - c.startAt) / (c.endAt - c.startAt) * 100)}%"></i></span>` +
       (c.note ? `<div class="meta">${esc(c.note)}</div>` : '') +
-      (st.overlaps.length ? `<div class="meta">Also running: ${st.overlaps.map(o => esc(o.name)).join(', ')}</div>` : '') + then
+      (st.overlaps.length ? `<div class="meta">Also running: ${st.overlaps.map(o => esc(o.name)).join(', ')}</div>` : '') + then +
+      (running(timeEntries)?.blockKey === occKey(c) ? '' : `<button type="button" class="track" id="dTrack">${ICON_PLAY} Track time</button>`)
     : `<p class="big">Free time</p>${then}`;
+  const tb = $('dTrack');
+  if (tb) tb.onclick = () => { startTimer(timeEntries, { label:short(c.name), cat:c.cat, blockKey:occKey(c), until:new Date(c.endAt).toISOString() }); changed('timeEntries'); };
+
+  const due = habitsDue(habits, today);
+  $('dHabits').hidden = !due.length;
+  $('dHabitPills').innerHTML = due.map(h => `<button type="button" class="pill" data-h="${esc(h.id)}" aria-pressed="${!!habitLog[habitKey(h, today)]}">${esc(h.name)}</button>`).join('');
+  $('dHabitPills').querySelectorAll('button').forEach(b => b.onclick = () => toggleHabit(b.dataset.h, today));
 
   $('dTasksTitle').textContent = c ? `Tasks for ${short(c.name)}` : 'Tasks for now';
   renderTaskList($('dTasks'), tasksForNow(tasks, st, now).sort(byPriority), { block:c, showLink:false, empty:'Nothing for this block.' });
@@ -135,6 +146,14 @@ function taskItem(t, opts = {}){
     if (L.cat) tag.style.cssText = colorVars(L.cat); li.appendChild(tag);
   }
   if (t.due){ const d = document.createElement('span'); d.className = 'due' + (!isDone(t) && endOfDay(t.due) <= now ? ' late' : ''); d.textContent = 'due ' + dayLabel(t.due); li.appendChild(d); }
+  const tm = trackedMin(timeEntries, e => e.taskId === t.id, now);
+  if (tm >= 1){ const s = document.createElement('span'); s.className = 'due'; s.textContent = dur(Math.round(tm)) + (t.estimate ? ' / ' + dur(t.estimate) + ' est' : ' tracked'); li.appendChild(s); }
+  if (!done && !routine){
+    const on = running(timeEntries)?.taskId === t.id, pb = document.createElement('button');
+    pb.type = 'button'; pb.className = 'play' + (on ? ' on' : ''); pb.innerHTML = on ? ICON_STOP : ICON_PLAY; pb.setAttribute('aria-label', (on ? 'Stop timing: ' : 'Time: ') + t.title);
+    pb.onclick = () => { if (on) stopTimer(timeEntries); else startTimer(timeEntries, { label:t.title, taskId:t.id, cat:linkLabel(t, plan).cat || null }); changed('timeEntries'); };
+    li.appendChild(pb);
+  }
   if (opts.actions) li.appendChild(overdueActions(t));
   return li;
 }
@@ -310,24 +329,97 @@ function renderWeek(){
 }
 
 /* ---------- Tasks tab ---------- */
-const FILTERS = [['now','Now'],['today','Today'],['week','Week'],['inbox','Inbox'],['all','All']];
+const FILTERS = [['now','Now'],['today','Today'],['week','Week'],['inbox','Inbox'],['all','All'],['habits','Habits']];
 const EMPTY = { now:'Nothing for the current block.', today:'Nothing planned for today.', week:'Nothing planned this week.', inbox:'Inbox is empty. Tasks with no day or block land here.', all:'No tasks yet.' };
 function renderTasks(){
   const now = Date.now(), st = status(plan, now);
   const overdue = taskView('overdue', tasks, plan, now, st).sort(byPriority), od = new Set(overdue.map(t => t.id));
   const f = $('filters'); f.innerHTML = '';
   FILTERS.forEach(([k, label]) => {
-    const n = taskView(k, tasks, plan, now, st).filter(t => !isDone(t) && !od.has(t.id)).length;
+    const n = k === 'habits' ? habitsDue(habits, isoDate(new Date(now))).filter(h => !habitLog[habitKey(h, isoDate(new Date(now)))]).length
+                             : taskView(k, tasks, plan, now, st).filter(t => !isDone(t) && !od.has(t.id)).length;
     const b = document.createElement('button'); b.setAttribute('aria-pressed', k === taskFilter); b.innerHTML = `${label}<b>${n}</b>`;
     b.onclick = () => { taskFilter = k; renderTasks(); }; f.appendChild(b);
   });
   renderTaskList($('overdueList'), overdue, { actions:true }); $('overdueBox').hidden = !overdue.length;
   $('overdueTitle').textContent = `Overdue (${overdue.length})`;
-  const list = taskView(taskFilter, tasks, plan, now, st).filter(t => !od.has(t.id)).sort(byPriority);
+  const hv = taskFilter === 'habits'; $('taskView').hidden = hv; $('habitView').hidden = !hv;
+  if (hv) renderHabits();
+  const list = hv ? [] : taskView(taskFilter, tasks, plan, now, st).filter(t => !od.has(t.id)).sort(byPriority);
   renderTaskList($('taskView'), list, { block:taskFilter === 'now' ? st.current : null, showLink:taskFilter !== 'now', empty:EMPTY[taskFilter] });
   const badge = $('overdueBadge'); badge.hidden = !overdue.length; badge.textContent = overdue.length;
 }
 $('newTask').onclick = () => openTaskDlg(null);
+
+/* ---------- Habits (Tasks → Habits; today's are ticked on Now) ---------- */
+function toggleHabit(id, iso){
+  const k = id + '|' + iso;
+  if (habitLog[k]) delete habitLog[k]; else habitLog[k] = true;
+  changed('habitLog');
+}
+// Seven weekday toggles.
+function dayPick(box, days){
+  box.innerHTML = DAYS.map((d, i) => `<button type="button" data-d="${i}" aria-pressed="${days.includes(i)}" aria-label="${d.name}">${d.key.slice(0, 2)}</button>`).join('');
+  box.querySelectorAll('button').forEach(b => b.onclick = () => b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true'));
+}
+const pickedDays = box => [...box.querySelectorAll('[aria-pressed=true]')].map(b => Number(b.dataset.d));
+// 12 weeks, one column per week: done, missed, or not scheduled.
+function habitDots(h, today){
+  const t = parseISO(today), start = addDays(t, -t.getDay() - 77); let out = '';
+  for (let i = 0; i < 84; i++){
+    const iso = isoDate(addDays(start, i));
+    out += `<i class="${iso > today ? 'f' : !isDue(h, iso) || iso === today && !habitLog[habitKey(h, iso)] ? 'n' : habitLog[habitKey(h, iso)] ? 'y' : 'm'}"></i>`;
+  }
+  return out;
+}
+function renderHabits(){
+  const today = isoDate(new Date()), ul = $('habitList');
+  ul.innerHTML = habits.length ? '' : '<li class="empty">No habits yet. Add one below, then tick it on Now each day.</li>';
+  for (const h of habits){
+    const li = document.createElement('li'), n = streak(h, habitLog, today), due = isDue(h, today);
+    li.innerHTML = `<button type="button" class="hk" aria-pressed="${!!habitLog[habitKey(h, today)]}" ${due ? '' : 'disabled title="Not today"'} aria-label="Done today: ${esc(h.name)}"></button>` +
+      `<button type="button" class="tt" title="Edit habit">${esc(h.name)}</button>` +
+      `<span class="due">${n ? `${n} in a row` : ''}${n && h.days.length < 7 ? ' · ' : ''}${h.days.length < 7 ? h.days.map(i => DAYS[i].key).join(' ') : ''}</span>` +
+      `<span class="dots" aria-hidden="true">${habitDots(h, today)}</span>`;
+    const [hk, tt] = li.querySelectorAll('button');
+    hk.onclick = () => toggleHabit(h.id, today); tt.onclick = () => openHabitDlg(h);
+    ul.appendChild(li);
+  }
+}
+dayPick($('habitDays'), ALL_DAYS);
+const addHabit = () => {
+  const name = $('habitName').value.trim(); if (!name) return;
+  habits.push(newHabit({ name, days:pickedDays($('habitDays')) }));
+  $('habitName').value = ''; dayPick($('habitDays'), ALL_DAYS); changed('habits');
+};
+$('habitAdd').onclick = addHabit;
+$('habitName').onkeydown = e => { if (e.key === 'Enter') addHabit(); };
+let dlgHabit = null;
+function openHabitDlg(h){ dlgHabit = h; $('habitForm').elements.name.value = h.name; dayPick($('hdDays'), h.days); $('habitDlg').showModal(); }
+$('habitDlg').addEventListener('close', () => {
+  const v = $('habitDlg').returnValue, h = dlgHabit; $('habitDlg').returnValue = '';
+  if (!h || !v || v === 'cancel') return;
+  if (v === 'delete'){
+    if (!confirm(`Delete “${h.name}” and its history?`)) return;
+    habits = habits.filter(x => x !== h);
+    for (const k in habitLog) if (k.startsWith(h.id + '|')) delete habitLog[k];
+    return changed('habits', 'habitLog');
+  }
+  const d = pickedDays($('hdDays'));
+  h.name = $('habitForm').elements.name.value.trim() || h.name; h.days = d.length ? d : ALL_DAYS;
+  changed('habits');
+});
+
+/* ---------- running timer: a pill on every tab ---------- */
+const clock = ms => { const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s % 60).padStart(2, '0'); };
+function renderTimer(){
+  const r = running(timeEntries); $('timer').hidden = !r; if (!r) return;
+  $('timer').style.cssText = r.cat ? colorVars(r.cat) : '';
+  $('timerLabel').textContent = r.label || 'Timer'; $('timerEl').textContent = clock(Date.now() - Date.parse(r.start));
+}
+$('timerStop').onclick = () => { stopTimer(timeEntries); changed('timeEntries'); };
+setInterval(() => { if (!$('timer').hidden) renderTimer(); }, 1000);
 
 /* ---------- Task dialog ---------- */
 let dlgTask = null;
@@ -678,6 +770,9 @@ function paintBackground(st){
 function tick(force){
   const now = Date.now(), iso = isoDate(new Date(now));
   if (iso !== lastIso){ lastIso = iso; selected = todayIdx(); weekOffset = 0; return renderAll(); }
+  const r = running(timeEntries);
+  if (r && r.until && now >= Date.parse(r.until)){ stopTimer(timeEntries, Date.parse(r.until)); return changed('timeEntries'); }
+  renderTimer();
   const st = status(plan, now);
   renderNowbar(st, now); paintBackground(st);
   const key = st.current ? st.current.id + st.current.date : '';
