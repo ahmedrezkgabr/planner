@@ -132,6 +132,11 @@ assert.equal(run(`wins({ updated_at:'2026-09-26T10:00:00Z' }, undefined)`), true
   await run(`Sync.save(['tasks'], state)`);
   const tomb = run('Sync.recs.get("task|" + t.id)');
   assert.equal(tomb.deleted, true); assert.equal(tomb.dirty, true); assert.equal(run('Sync.pending()'), 1);
+  // Regression: state loaded from the store and then edited in place (ticking a task, recoloring a type) must still save.
+  run('for (const r of Sync.recs.values()) r.dirty = false; ctx2 = Sync.state(); setDone(ctx2.tasks[0], true); ctx2.categories.Gym.color = "#000000"');
+  await run(`Sync.save(['tasks', 'categories'], ctx2)`);
+  assert.equal(run('Sync.pending()'), 2, 'in-place edits of loaded state are saved');
+  assert.equal(run('Sync.state().tasks[0].status'), 'Completed');
   run('clearTimeout(Sync.timer)');
   console.log('all checks passed');
 })().catch(e => { console.error(e); process.exit(1); });

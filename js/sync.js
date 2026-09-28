@@ -44,7 +44,7 @@ function toState(recs){
   const s = { settings:{...DEFAULTS}, categories:structuredClone(DEFAULT_CATEGORIES), customBlocks:[], overrides:{weekly:{}, dated:{}}, tasks:[], blockDone:{} };
   for (const r of recs){
     if (r.deleted || !r.data) continue;
-    const d = r.data;
+    const d = structuredClone(r.data);   // a copy: the UI edits state in place, and save() diffs it against the stored record
     switch (r.collection){
       case 'settings':    s.settings = { ...DEFAULTS, ...d }; break;
       case 'category':    s.categories[r.id] = d; break;
