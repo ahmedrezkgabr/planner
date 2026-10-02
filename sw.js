@@ -9,9 +9,9 @@
       planner when you tap one.
    Bump VERSION when you change any file so phones pick up the update.
    ===================================================================== */
-const VERSION = 'planner-v3.12';
+const VERSION = 'planner-v3.13';
 const SHELL = ['./', 'index.html', 'planner.css', 'manifest.webmanifest',
-  'js/schedule.js', 'js/tasks.js', 'js/habits.js', 'js/notify.js', 'js/config.js', 'js/sync.js', 'js/ui.js',
+  'js/schedule.js', 'js/tasks.js', 'js/habits.js', 'js/notify.js', 'js/config.js', 'js/sync.js', 'js/ui.js', 'js/template-ui.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 
 self.addEventListener('install', e => {

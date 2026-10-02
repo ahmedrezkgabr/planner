@@ -71,7 +71,7 @@
   <section id="view-day" hidden>
     <div class="days" id="days"></div>
     <div class="dayhead"><h2 id="dayTitle"></h2><span id="daySub"></span>
-      <div class="toolbar"><button class="btn sm" id="editToggle" aria-pressed="false">Edit schedule</button><button class="btn sm" id="addBlock">+ Block</button></div>
+      <div class="toolbar"><button class="btn sm" id="editToggle" aria-pressed="false">Edit schedule</button><button class="btn sm" id="addBlock">+ Block</button><button class="btn sm" id="tmplEdit">Edit week template</button></div>
     </div>
     <div class="stats" id="dayStats"></div>
     <div class="tl" id="tl"><div class="gutter" id="gutter"></div><div class="track" id="track"></div></div>
@@ -123,6 +123,19 @@
     <div class="vbars" id="statsTasks" role="list"></div>
   </section>
 
+  <!-- WEEK TEMPLATE: which blocks each weekday has, in what order, how long. Edits a draft; Save writes it. -->
+  <section id="view-template" hidden>
+    <button type="button" class="tback" id="tBack">‹ Plan</button>
+    <div class="days" id="tDays" role="tablist" aria-label="Day of the week"></div>
+    <label class="tlabel">Day label <input id="tLabel" maxlength="60" autocomplete="off"></label>
+    <ul class="steps" id="tSteps"></ul>
+    <div class="row tacts"><button class="btn" id="tAdd">+ Add block</button><button class="btn" id="tCopy" aria-expanded="false">Copy this day to…</button><button class="btn" id="tReset">Reset day to default</button></div>
+    <div class="tcopy" id="tCopyBox" hidden><div class="daypick" id="tCopyDays" role="group" aria-label="Copy to"></div><button class="btn primary" id="tCopyGo">Copy</button></div>
+    <fieldset class="tgym"><legend>Workday gym</legend><p>Afternoon: gym before Maghrib. Evening: a longer gym after Isha. Picking one replaces Sunday to Thursday with that default week.</p><div class="seg" id="tGym" role="group" aria-label="Workday gym"></div></fieldset>
+    <details class="more" id="tLens"><summary>Shared durations</summary><p class="hint">A block can use one of these instead of its own number. Change one and every block using it follows. Saved right away.</p><div class="grid" id="tLenGrid"></div></details>
+    <div class="tsave"><span class="muted" id="tState"></span><button class="btn ghost" id="tCancel">Cancel</button><button class="btn primary" id="tSave">Save</button></div>
+  </section>
+
   <section id="view-settings" hidden>
     <fieldset>
       <legend>Account and sync</legend>
@@ -140,9 +153,10 @@
     </fieldset>
 
     <div id="settingsForm"></div>
+    <fieldset><legend>Week template</legend><p>Which blocks each day has, their order and how long they run.</p><button class="btn" id="tmplFromSettings">Edit week template</button></fieldset>
 
     <details class="more">
-      <summary>More settings: block types, block lengths, backup</summary>
+      <summary>More settings: block types, backup</summary>
     <fieldset>
       <legend>Block types and reminders</legend>
       <p>Minutes = how long before the block the reminder rings.</p>
@@ -150,7 +164,6 @@
       <div class="row" style="margin-top:10px"><input id="newCatName" type="text" placeholder="New block type, e.g. Meeting" maxlength="30" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;flex:1 1 180px"><input id="newCatColor" type="color" value="#F4B183" aria-label="Color"><button class="btn" id="newCatAdd">Add type</button></div>
       <datalist id="leads"><option value="5"><option value="10"><option value="15"><option value="30"></datalist>
     </fieldset>
-      <div id="settingsMore"></div>
     <fieldset>
       <legend>Backup</legend>
       <p>Saved on this device (<span id="storeMode"></span>) and in your account. A backup file holds everything; importing merges it in.</p>
@@ -216,6 +229,40 @@
   </form>
 </dialog>
 
+<!-- Week template: one block (step) of a weekday -->
+<dialog id="stepDlg">
+  <form method="dialog" class="dlg" id="stepForm">
+    <h3 id="sdTitle">Edit block</h3>
+    <label>Name <input name="name" required maxlength="80"></label>
+    <div class="two"><label>Block type <select name="cat"></select></label>
+      <label>Kind <select name="kind"><option value="Fixed">Fixed</option><option value="Flex">Flex</option><option value="Spare">Spare</option></select></label></div>
+    <label id="sdNew">New type name <input name="newCat" maxlength="30" placeholder="e.g. Meeting"></label>
+    <label>Note <input name="note" maxlength="240"></label>
+    <label id="sdFirst">Day starts at <select name="start"></select></label>
+    <fieldset class="howlong"><legend>How long</legend>
+      <label><input type="radio" name="rule" value="len"> Fixed length</label>
+      <label><input type="radio" name="rule" value="until"> Until a time</label>
+      <label><input type="radio" name="rule" value="cap"> Up to a length, but stop before a time</label>
+      <label><input type="radio" name="rule" value="atLeast"> At least a length, until a time</label>
+      <label><input type="radio" name="rule" value="rest"> Top up another block to a total</label>
+    </fieldset>
+    <div class="two">
+      <label data-r="rest">Block to top up <select name="of"></select></label>
+      <label data-r="len cap atLeast rest">Length <select name="lenRef"></select></label>
+      <label data-r="len cap atLeast rest" id="sdOwn">Minutes <input type="number" name="lenMin" min="0" max="1440" step="5" inputmode="numeric"></label>
+      <label data-r="until cap atLeast">Time <select name="anchor"></select></label>
+      <label data-r="until cap atLeast">Minus, in minutes <input type="number" name="minus" min="0" max="1440" step="5" inputmode="numeric"></label>
+    </div>
+    <div class="inline" data-r="until"><label><input type="checkbox" name="nextDay"> The next day (Sleep: until tomorrow’s wake)</label></div>
+    <p class="hint">Kind is a label: Fixed for prayers, work and sleep, Flex for blocks that can move, Spare for slack. “How long” decides where the block ends; the times (Maghrib, bedtime…) come from Settings.</p>
+    <div class="row">
+      <button class="btn primary" value="save">Save</button>
+      <button class="btn danger" value="delete" formnovalidate id="sdDelete">Delete</button>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- Running timer: visible on every tab -->
 <div class="timer" id="timer" role="status" hidden><span class="rec" aria-hidden="true"></span><span class="lbl" id="timerLabel"></span><span class="el" id="timerEl"></span><button type="button" id="timerStop" class="btn sm">Stop</button></div>
 
@@ -245,5 +292,6 @@
 <script src="js/config.js"></script>
 <script src="js/sync.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/template-ui.js"></script>
 </body>
 </html>

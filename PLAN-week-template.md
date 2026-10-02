@@ -1,4 +1,4 @@
-# Plan (not started): editable week template, targets and "Plan my week"
+# Plan (T1–T2 done, resume at T3): editable week template, targets and "Plan my week"
 
 Plan only. Nothing here is implemented yet. Each phase below ships on its own, in order.
 

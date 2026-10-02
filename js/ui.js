@@ -197,7 +197,7 @@ function renderDay(){
   const date = dateFor(selected), iso = isoDate(date), d = DAYS[selected];
   const all = buildDay(plan, date), blocks = visible(all), sum = daySummary(all);
   $('dayTitle').textContent = d.name;
-  $('daySub').textContent = `${date.toLocaleDateString('en-GB', {day:'numeric', month:'long'})}, ${d.kind}`;
+  $('daySub').textContent = `${date.toLocaleDateString('en-GB', {day:'numeric', month:'long'})}, ${plan.template?.[d.key]?.label ?? d.kind}`;
   $('dayStats').innerHTML =
     `<span>Sleep <b>${sum.sleepH.toFixed(1)} h</b></span><span>Buffer <b>${sum.buffer} min</b></span>` +
     (sum.lightsOut != null ? `<span>Lights out <b>${fmt(sum.lightsOut)}</b></span>` : '');
@@ -573,17 +573,11 @@ function renderBudget(){
 const FIELDS = [
   {group:'Prayer times', auto:true, hint:'Typed by hand. Your day is built around them.',
    autoHint:'Worked out every day from your location (Egyptian method). Today\'s times:',
-   items:[['fajr','Fajr'],['dhuhr','Dhuhr'],['asr','Asr'],['maghrib','Maghrib'],['isha','Isha']], type:'time'},
+   items:[['fajr','Fajr'],['dhuhr','Dhuhr'],['asr','Asr'],['maghrib','Maghrib'],['isha','Isha']]},
   {group:'Sleep', hint:'7.5 h on work nights, 8.5 h before a day off.',
-   items:[['wakeWork','Wake, workday'],['bedWork','Lights out before a workday'],['wakeOff','Wake, day off'],['bedOff','Lights out before a day off']], type:'time'},
-  {group:'Work', hint:'Remote, Sunday to Thursday.', items:[['workStart','Starts'],['workEnd','Ends']], type:'time'},
-  {group:'Gym slot on workdays', hint:'Afternoon: gym before Maghrib. Evening: a longer gym after Isha.', type:'toggle'},
-  {group:'Block lengths, in minutes', more:true, hint:'The startup and learning lengths are the main dials for how much slack the day has.',
-   items:[['prayer','Prayer, each'],['azkar','Azkar, morning and evening'],['quran','Quran study'],['lunch','Lunch'],['dinner','Dinner'],['breakfast','Breakfast, days off'],
-          ['familyLunch','Friday family lunch'],['jumuah','Jumu\'ah, including going'],['jumuahPrep','Leave for Jumu\'ah, before Dhuhr'],['gymMax','Gym, maximum'],
-          ['learnWork','Learning, workday'],['startupWork','Startup, workday'],['startupSat','Startup, Saturday morning'],['learnSat','Learning, Saturday'],['readFri','Reading, Friday'],
-          ['nap','Friday rest'],['leisure','Leisure'],['planning','Weekly review'],['windDown','Wind-down'],['offsetWork','Offset after work'],['offsetShort','Short offset']], type:'number'},
-];
+   items:[['wakeWork','Wake, workday'],['bedWork','Lights out before a workday'],['wakeOff','Wake, day off'],['bedOff','Lights out before a day off']]},
+  {group:'Work', hint:'Remote, Sunday to Thursday.', items:[['workStart','Starts'],['workEnd','Ends']]},
+];   // block lengths and the workday gym slot live in the week template editor (template-ui.js)
 // Auto prayer times: a switch, "Use my location", or a typed latitude/longitude.
 function prayerControls(){
   const s = plan.settings, loc = s.location || {}, box = document.createElement('div'); box.className = 'prayer-auto';
@@ -605,38 +599,26 @@ function prayerControls(){
   return box;
 }
 function renderSettings(){
-  const auto = prayerTimesFor(plan.settings, new Date()); $('settingsForm').innerHTML = $('settingsMore').innerHTML = '';
+  const auto = prayerTimesFor(plan.settings, new Date()); $('settingsForm').innerHTML = '';
   FIELDS.forEach(g => {
     const fs = document.createElement('fieldset');
     fs.innerHTML = `<legend>${g.group}</legend><p>${g.auto && plan.settings.prayerAuto ? g.autoHint : g.hint}</p>`;
     if (g.auto) fs.appendChild(prayerControls());
-    if (g.type === 'toggle'){
-      const seg = document.createElement('div'); seg.className = 'seg';
-      ['afternoon','evening'].forEach(v => { const b = document.createElement('button'); b.textContent = v[0].toUpperCase() + v.slice(1);
-        b.setAttribute('aria-pressed', plan.settings.gymSlot === v); b.onclick = () => update('gymSlot', v); seg.appendChild(b); });
-      fs.appendChild(seg);
-    } else {
-      const grid = document.createElement('div'); grid.className = 'grid';
-      g.items.forEach(([k, label]) => {
-        const l = document.createElement('label'); l.textContent = label;
-        const inp = document.createElement('input'); inp.type = g.type; inp.value = (g.auto && auto[k]) || plan.settings[k];
-        if (g.auto && auto[k]) inp.disabled = true;
-        if (g.type === 'number'){ inp.min = 0; inp.step = 5; inp.inputMode = 'numeric'; }
-        inp.onchange = () => { const v = g.type === 'number' ? Math.max(0, Number(inp.value) || 0) : inp.value; if (v === '') return; update(k, v); };
-        l.appendChild(inp); grid.appendChild(l);
-      });
-      fs.appendChild(grid);
-    }
-    $(g.more ? 'settingsMore' : 'settingsForm').appendChild(fs);
+    const grid = document.createElement('div'); grid.className = 'grid';
+    g.items.forEach(([k, label]) => {
+      const l = document.createElement('label'); l.textContent = label;
+      const inp = document.createElement('input'); inp.type = 'time'; inp.value = (g.auto && auto[k]) || plan.settings[k];
+      if (g.auto && auto[k]) inp.disabled = true;
+      inp.onchange = () => { if (inp.value !== '') update(k, inp.value); };
+      l.appendChild(inp); grid.appendChild(l);
+    });
+    fs.appendChild(grid);
+    $('settingsForm').appendChild(fs);
   });
   renderCats(); renderNotifyStatus(); renderBackup(); renderVersion();
 }
-function update(k, v){
-  plan.settings = {...plan.settings, [k]: v};
-  if (k === 'gymSlot'){ plan.template = DEFAULT_TEMPLATE(v); changed('settings', 'template'); } else changed('settings');   // the template isn't editable yet: the toggle swaps the default week
-  renderSettings();
-}
-$('reset').onclick = () => { if (!confirm('Reset prayer times, sleep, work and block lengths to the original plan? Tasks and block edits are kept.')) return; plan.settings = {...DEFAULTS, location:plan.settings.location, prayerAuto:plan.settings.prayerAuto}; plan.template = DEFAULT_TEMPLATE(); changed('settings', 'template'); renderSettings(); };
+function update(k, v){ plan.settings = {...plan.settings, [k]: v}; changed('settings'); renderSettings(); }
+$('reset').onclick = () => { if (!confirm('Reset prayer times, sleep, work and block lengths to the original plan? The week template resets to the original week too. Tasks and block edits are kept.')) return; plan.settings = {...DEFAULTS, location:plan.settings.location, prayerAuto:plan.settings.prayerAuto}; plan.template = DEFAULT_TEMPLATE(DEFAULTS.gymSlot); changed('settings', 'template'); renderSettings(); };
 $('resetEdits').onclick = () => {
   if (!confirm('Remove every edit to the generated blocks (moves, renames, deletions) and delete your own blocks? Tasks linked to your own blocks stay, marked “Removed block”.')) return;
   plan.overrides = { weekly:{}, dated:{} }; plan.customBlocks = []; changed('overrides', 'customBlocks');
@@ -660,12 +642,16 @@ function renderCats(){
     box.appendChild(row);
   }
 }
-$('newCatAdd').onclick = () => {
-  const name = $('newCatName').value.trim(); if (!name) return;
+// A new block type; an existing one with the same key is returned as is (null when told to refuse it).
+function newCategory(name, color, reuse){
   const key = name.replace(/[^\p{L}\p{N}]+/gu, '') || 'Type' + uid();
-  if (plan.categories[key]) return toast('That block type already exists.');
-  plan.categories[key] = { label:name, color:$('newCatColor').value, remind:true, lead:10 };
-  $('newCatName').value = ''; changed('categories'); renderCats();
+  if (plan.categories[key]) return reuse ? key : (toast('That block type already exists.'), null);
+  plan.categories[key] = { label:name, color, remind:true, lead:10 }; changed('categories');
+  return key;
+}
+$('newCatAdd').onclick = () => {
+  const name = $('newCatName').value.trim(); if (!name || !newCategory(name, $('newCatColor').value)) return;
+  $('newCatName').value = ''; renderCats();
 };
 
 // Reminders: Web Push from the server (notify.js Push, supabase/functions/tick)
@@ -767,21 +753,22 @@ $('gateForm').onsubmit = async e => {
 
 /* ---------- navigation ---------- */
 // Tabs: Now · Plan (Day/Week toggle) · Tasks · Stats. Settings opens from the gear.
-const VIEWS = ['now','day','week','tasks','budget','settings'];
+const VIEWS = ['now','day','week','tasks','budget','settings','template'];
 let planMode = 'day';
 function show(view){
+  if (view !== 'template' && !$('view-template').hidden && !leaveTemplate()) return;   // unsaved template edits: ask first
   if (view === 'plan') view = planMode;
   if (view === 'day' || view === 'week') planMode = view;
-  const tab = view === 'day' || view === 'week' ? 'plan' : view;
+  const tab = view === 'day' || view === 'week' || view === 'template' ? 'plan' : view;
   document.querySelectorAll('nav [role=tab]').forEach(x => x.setAttribute('aria-selected', x.dataset.view === tab));
   document.querySelectorAll('#planSeg button').forEach(x => x.setAttribute('aria-pressed', x.dataset.plan === view));
-  $('planSeg').hidden = tab !== 'plan'; $('gear').setAttribute('aria-pressed', view === 'settings');
+  $('planSeg').hidden = view !== 'day' && view !== 'week'; $('gear').setAttribute('aria-pressed', view === 'settings');
   VIEWS.forEach(v => $('view-' + v).hidden = v !== view);
-  $('viewTitle').textContent = { now:'Now', day:'Plan', week:'Plan', tasks:'Tasks', budget:'Stats', settings:'Settings' }[view];
+  $('viewTitle').textContent = { now:'Now', day:'Plan', week:'Plan', tasks:'Tasks', budget:'Stats', settings:'Settings', template:'Week template' }[view];
   document.body.classList.toggle('on-now', view === 'now');
   window.scrollTo(0, 0);
   $('wrap').classList.toggle('wide', view === 'week');
-  if (view === 'day') renderDay(); if (view === 'tasks') renderTasks(); if (view === 'settings') renderNotifyStatus();
+  if (view === 'day') renderDay(); if (view === 'tasks') renderTasks(); if (view === 'settings') renderNotifyStatus(); if (view === 'template') renderTemplate();
   try { sessionStorage.setItem('view', view); } catch (e) {}
 }
 document.querySelectorAll('nav [role=tab]').forEach(b => b.onclick = () => show(b.dataset.view));

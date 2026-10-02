@@ -30,10 +30,13 @@ const signIn = async (p, uid = 'user-a') => { await p.evaluate(([k, v]) => local
     await signIn(p, 'user-a'); assert.ok(await p.isVisible('#wrap'), 'signed in: app opens');
     await p.click('nav [data-view=tasks]'); await p.fill('#quickText', 'Secret task'); await p.press('#quickText', 'Enter');
     await p.click('#taskView .tt'); await p.click('#taskDlg button[value=save]'); assert.equal(await p.isVisible('#taskDlg'), false, 'dialogs work under the CSP');
-    await settle(p); await signIn(p, 'user-b'); await p.waitForTimeout(1500);
+    await settle(p); await signIn(p, 'user-b');
+    await p.waitForFunction(() => typeof Sync !== 'undefined' && Sync.meta.owner === 'user-b', null, { timeout:30000 });
     assert.ok(!(await p.evaluate(() => tasks.map(t => t.title))).includes('Secret task'), "another account's session wipes, not uploads");
-    await p.click('#gear'); await p.click('#acctSignOut'); await p.waitForTimeout(1500);
-    assert.ok(await p.isVisible('#gate'), 'gate after sign-out');
+    await p.waitForFunction(() => Sync.client, null, { timeout:30000 });   // sign-out needs the client
+    await p.click('#gear'); await p.click('#acctSignOut');
+    await p.waitForSelector('#gate:not([hidden])', { timeout:30000 });
+    await p.waitForLoadState('load'); await p.waitForTimeout(300);
     const left = await p.evaluate(() => new Promise(r => { const q = indexedDB.open('planner3'); q.onsuccess = () => { const g = q.result.transaction('records').objectStore('records').count(); g.onsuccess = () => r(g.result); }; }));
     assert.equal(left, 0, 'nothing left on the device');
     assert.deepEqual([p.errs, p.csp], [[], []]); await p.context().close(); console.log('gate ok');
@@ -102,6 +105,40 @@ const signIn = async (p, uid = 'user-a') => { await p.evaluate(([k, v]) => local
     assert.equal(await p.textContent('#statsTasks .vb.today b'), '1');
     await p.click('#statsNav .wk >> nth=0'); assert.match(await p.textContent('#statsNav'), /Week of/);
     assert.deepEqual(p.errs, []); await p.context().close(); console.log('stats ok');
+  }
+
+  { // Week template editor: reorder with a live preview, save, a linked task follows its block, a new type, copy a day.
+    const p = await page(b); await p.clock.install({ time:new Date('2026-09-29T09:00:00+03:00') });   // a Tuesday; this week's Sunday is the 27th
+    await p.goto(U); await signIn(p);
+    await p.evaluate(() => { tasks.push(newTask({ title:'Leg day', link:{ type:'block', date:'2026-09-27', blockId:'Sun:gym' } })); changed('tasks'); });
+    await p.click('nav [data-view=plan]'); await p.click('#tmplEdit');
+    assert.ok(await p.isVisible('#view-template')); assert.equal(await p.textContent('#viewTitle'), 'Week template');
+    await p.click('#tDays [data-i="0"]');
+    const row = n => p.locator(`#tSteps li:has(b:text-is("${n}"))`), names = () => p.$$eval('#tSteps b', e => e.map(x => x.textContent));
+    const LUNCH = "Lunch, whenever it's ready", before = await row('Gym').locator('.tm').textContent();
+    await row('Gym').locator('[data-d="-1"]').click();
+    let n = await names(); assert.ok(n.indexOf('Gym') < n.indexOf(LUNCH), 'Gym moved above Lunch');
+    assert.notEqual(await row('Gym').locator('.tm').textContent(), before, 'preview times follow');
+    await p.click('#tSave');
+    assert.ok(await p.isVisible('#view-day'));
+    const order = await p.$$eval('#track .blk .n', e => e.map(x => x.textContent));
+    assert.ok(order.indexOf('Gym') < order.indexOf(LUNCH), 'Plan day shows the new order');
+    assert.match(await p.textContent('#track .blk:has(.n:text-is("Gym")) .t'), /1 task/, 'the linked task stays on Sun:gym');
+    // A block with a new type, after Gym; then copy Sunday to Monday.
+    await p.click('#tmplEdit'); await p.click('#tDays [data-i="0"]');
+    await row('Gym').locator('.st').click(); await p.click('#stepDlg button[value=cancel]');
+    await p.click('#tAdd'); await p.fill('#stepForm [name=name]', 'Team sync');
+    await p.selectOption('#stepForm [name=cat]', '__new'); await p.fill('#stepForm [name=newCat]', 'Meeting');
+    await p.click('#stepDlg button[value=save]');
+    await p.waitForSelector('#tSteps b:text-is("Team sync")'); n = await names(); assert.equal(n.indexOf('Team sync'), n.indexOf('Gym') + 1, 'added after the selected row');
+    assert.equal(await p.evaluate(() => plan.categories.Meeting?.label), 'Meeting');
+    await p.click('#tCopy'); await p.click('#tCopyDays [data-d="1"]'); await p.click('#tCopyGo');
+    await p.click('#tSave');
+    assert.deepEqual(await p.evaluate(() => plan.template.Mon.steps.map(s => s.name)), n, 'Monday is a copy of Sunday');
+    assert.equal(await p.evaluate(() => buildDay(plan, parseISO('2026-09-28')).find(x => x.name === 'Team sync')?.cat), 'Meeting');
+    await settle(p); await p.reload(); await p.waitForTimeout(800);
+    assert.equal(await p.evaluate(() => plan.template.Sun.steps.some(s => s.name === 'Team sync')), true, 'the template survives a reload');
+    assert.deepEqual(p.errs, []); await p.context().close(); console.log('template editor ok');
   }
 
   await b.close(); srv.close(); console.log('all browser checks passed');
