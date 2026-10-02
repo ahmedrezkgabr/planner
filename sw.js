@@ -9,13 +9,14 @@
       planner when you tap one.
    Bump VERSION when you change any file so phones pick up the update.
    ===================================================================== */
-const VERSION = 'planner-v3.9';
+const VERSION = 'planner-v3.10';
 const SHELL = ['./', 'index.html', 'planner.css', 'manifest.webmanifest',
   'js/schedule.js', 'js/tasks.js', 'js/habits.js', 'js/notify.js', 'js/config.js', 'js/sync.js', 'js/ui.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache:'reload' skips the browser's HTTP cache (GitHub Pages keeps files 10 min), so a new version never caches old files.
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache:'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim()));

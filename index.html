@@ -159,6 +159,7 @@
     </fieldset>
       <div class="row"><button class="btn" id="reset">Reset to the original plan</button><button class="btn" id="resetEdits">Remove all block edits</button><span class="saved" id="savedNote"></span></div>
     </details>
+    <p class="muted" id="appVersion"></p>
   </section>
 </div>
 
@@ -234,6 +235,7 @@
   </form>
 </dialog>
 
+<button type="button" class="updatebar" id="updateBar" hidden>New version ready · <b>Tap to update</b></button>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <!-- Load order matters: logic first (no DOM), then UI. Plain scripts, not modules, so the page still opens by double-click. -->

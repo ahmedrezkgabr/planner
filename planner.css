@@ -335,3 +335,7 @@ body.locked{background:var(--paper)}
 @media (prefers-reduced-motion:reduce){ .timer .rec{animation:none} }
 @media (min-width:900px){ .timer{left:auto;right:24px;transform:none;bottom:24px} }
 body:has(#timer:not([hidden])) .wrap{padding-bottom:calc(150px + env(safe-area-inset-bottom))}
+
+/* Update ready */
+.updatebar{position:fixed;z-index:40;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top));padding:10px 18px;border-radius:999px;
+  background:var(--ink);color:var(--on-ink);box-shadow:0 6px 20px rgba(0,0,0,.2);white-space:nowrap;font-size:15px}

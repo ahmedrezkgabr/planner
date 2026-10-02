@@ -609,7 +609,7 @@ function renderSettings(){
     }
     $(g.more ? 'settingsMore' : 'settingsForm').appendChild(fs);
   });
-  renderCats(); renderNotifyStatus(); renderBackup();
+  renderCats(); renderNotifyStatus(); renderBackup(); renderVersion();
 }
 function update(k, v){ plan.settings = {...plan.settings, [k]: v}; changed('settings'); renderSettings(); }
 $('reset').onclick = () => { if (!confirm('Reset prayer times, sleep, work and block lengths to the original plan? Tasks and block edits are kept.')) return; plan.settings = {...DEFAULTS, location:plan.settings.location, prayerAuto:plan.settings.prayerAuto}; changed('settings'); renderSettings(); };
@@ -669,6 +669,18 @@ $('notifyEnable').onclick = pushAction(() => Push.enable(), 'Reminders on for th
 $('notifyOff').onclick = pushAction(() => Push.disable(), 'Reminders off for this device');
 $('notifyTest').onclick = pushAction(() => Push.test(), 'Test sent to the server. It should arrive within a minute. Try closing the planner first.');
 // A push arrived while the planner is open: also show it in the app.
+/* ---------- updates: a new version installs in the background; one tap reloads into it ---------- */
+function watchUpdates(){
+  const had = !!navigator.serviceWorker.controller;   // the first install isn't an "update"
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) $('updateBar').hidden = false; });
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    // An installed app can stay open for days: look for a new version whenever it comes back to the front.
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(() => {});
+}
+$('updateBar').onclick = () => location.reload();
+// The version is the service worker's cache name, so there's one place to bump it (sw.js).
+async function renderVersion(){ try { $('appVersion').textContent = 'Version ' + ((await caches.keys()).find(k => k.startsWith('planner-')) || '?').replace('planner-v', ''); } catch (e) {} }
 if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data?.type === 'reminder') toast(e.data.title, null, 10000); });
 
 $('jsonExport').onclick = () => {
@@ -800,7 +812,7 @@ window.addEventListener('focus', () => tick(true));
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') Sync.syncNow(); });
 
   // Service worker: offline use, installability, notifications on Android.
-  if ('serviceWorker' in navigator && isSecureContext && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && isSecureContext && location.protocol !== 'file:') watchUpdates();
 
   renderSettings(); renderAll();
   let v = 'now'; try { v = sessionStorage.getItem('view') || 'now'; planMode = v === 'week' ? 'week' : 'day'; } catch (e) {}
