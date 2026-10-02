@@ -112,7 +112,7 @@ create table google_tokens (user_id uuid primary key, refresh_token text, calend
 - **sw.js:** a `push` event shows the notification with the category color as its icon. `notificationclick` focuses or opens the app. If a planner window is focused, it `postMessage`s instead and the page shows a toast.
 - **Removed:** the client-side reminder firing in `ui.js runReminders`, `notifyLog`, `buildICS`/.ics export, and the multi-tab leader logic. `upcomingReminders` stays for the dashboard.
 
-## 6. Google Calendar (one-way)
+## 6. Google Calendar (one-way). Dropped (WAYFINDER D16); kept here for reference
 
 - Settings → *Connect Google Calendar* starts an OAuth flow (scope `calendar.app.created`, access_type offline). An edge function `google-callback` exchanges the code and stores the refresh token in `google_tokens`. It creates a calendar called "Planner" and stores its id.
 - The tick function runs the Google step at most every 5 minutes. For rows where `hash != gcal_hash`: insert or patch the event (`colorId` is the nearest Google color to the category color, `reminders.useDefault=false` because push handles alerts). For `deleted` rows with a `gcal_id`: delete the event. Then set `gcal_hash`.
@@ -224,17 +224,17 @@ Multi-user or sharing, Excel, two-way Google sync, Outlook, native apps, and edi
 
 ## 15. Build order (each step ships something usable)
 
-1. **Sync foundation:** schema, `sync.js`, auth, migration, JSON backup. Delete Excel. Tests for the round-trip and LWW.
-2. **Push reminders:** `materialize`, the tick function, sw push, per-device subscribe. Delete the old reminder loop.
-3. **UX:** bottom nav, phone layout, gradient background, quick add, dark mode.
+1. **Sync foundation:** schema, `sync.js`, auth, migration, JSON backup. Delete Excel. Tests for the round-trip and LWW. Done.
+2. **Push reminders:** `materialize`, the tick function, sw push, per-device subscribe. Delete the old reminder loop. Done.
+3. **UX:** bottom nav, phone layout, gradient background, quick add, dark mode. Done, plus a simplification pass.
 4. **Prayer times:** location, auto/manual. Done.
 5. **Habits + timers.** Done.
 6. **Stats** (replaces Budget). Done.
-7. **Google Calendar.**
-8. README, keep-alive, Pages deploy.
+7. **Google Calendar.** Dropped (D16).
+8. README, keep-alive, Pages deploy. Done, plus a sign-in gate, CSP and the update bar.
 
-## Open research (confirm when building)
+## Open research (resolved)
 
-- R1: Web Push from a Supabase Edge Function in Deno. Does `npm:web-push` work, or is `jsr:@negrel/webpush` needed?
-- R2: Does pg_cron activity inside the database count as "activity" for the free-tier pause? If it does, the keep-alive Action can be dropped.
-- R3: Is iOS PWA push delivery reliable enough with a 1-minute tick? Test on your device during step 2.
+- R1: `npm:web-push@3.6.7` works in the Deno edge function (tested locally against Postgres and a fake push service, then live).
+- R2: Unclear whether pg_cron activity counts. The weekly keep-alive Action stays (it ran successfully on 2026-10-02).
+- R3: A test push arrived on the phone with the app closed (2026-10-02). On iPhone it only works from the Home Screen app.

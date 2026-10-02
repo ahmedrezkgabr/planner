@@ -15,7 +15,7 @@ create table if not exists public.occurrences (
   hash      text not null,                 -- changes when anything above changes
   deleted   boolean not null default false,
   sent_at   timestamptz,                   -- set by tick before sending, so nothing goes out twice
-  gcal_id   text, gcal_hash text,          -- step 7 (Google Calendar)
+  gcal_id   text, gcal_hash text,          -- unused: Google Calendar sync was dropped
   primary key (user_id, id)
 );
 create index if not exists occurrences_due on public.occurrences (remind_at) where sent_at is null and not deleted;
