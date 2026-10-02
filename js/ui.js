@@ -530,23 +530,43 @@ $('blockDlg').addEventListener('close', () => {
 });
 
 /* ---------- Budget (original) ---------- */
+// Stats: one week. Tiles for the headline numbers, a bar per block type (done inside planned), tasks done per day.
+let statsOffset = 0;
+const hrs = m => { const h = m / 60; return (h >= 10 || Number.isInteger(h) ? Math.round(h) : h.toFixed(1)) + ' h'; };
 function renderBudget(){
-  const totals = {};
-  for (let i = 0; i < 7; i++) visible(buildDay(plan, dateFor(i))).forEach(b => { totals[b.cat] = (totals[b.cat] || 0) + b.min; });
-  const rows = [...BUDGET, ...Object.keys(totals).filter(k => !BUDGET.some(([c]) => c === k)).map(k => [k, null])];
-  let t1 = 0, t2 = 0; const trim = x => x.toFixed(2).replace(/\.?0+$/, '');
-  $('budgetBody').innerHTML = rows.map(([c, target]) => {
-    const h = (totals[c] || 0) / 60; t2 += h; if (target != null) t1 += target;
-    const diff = target == null ? null : h - target, cls = diff == null ? '' : (diff < -0.05 ? 'neg' : diff > 0.05 ? 'pos' : '');
-    return `<tr><td><span class="dot" style="${colorVars(c)}"></span>${esc(cat(c).label)}</td><td>${target == null ? '–' : trim(target)}</td><td>${trim(h)}</td><td class="${cls}">${diff == null ? '' : (diff > 0 ? '+' : '') + trim(diff)}</td></tr>`;
-  }).join('');
-  $('bT1').textContent = t1.toFixed(1); $('bT2').textContent = t2.toFixed(1);
-  const tot = k => (totals[k] || 0) / 60, waking = 168 - tot('Sleep');
-  const hard = (tot('Offset') + tot('Spare')) / waking, slack = (tot('Offset') + tot('Spare') + tot('Leisure') + tot('Rest') + tot('Social')) / waking;
-  $('kpis').innerHTML =
-    `<div class="kpi"><b>${waking.toFixed(1)}</b><span>waking hours a week</span></div>` +
-    `<div class="kpi"><b>${Math.round(hard*100)}%</b><span>hard buffer: offsets and spare</span></div>` +
-    `<div class="kpi"><b>${Math.round(slack*100)}%</b><span>total slack, adding leisure, rest and social</span></div>`;
+  const dates = Array.from({ length:7 }, (_, i) => addDays(new Date(), i - todayIdx() + 7 * statsOffset)), now = Date.now();
+  const w = weekStats(plan, { blockDone, tasks, habits, habitLog, timeEntries }, dates, now);
+  const nav = $('statsNav');
+  nav.innerHTML = `<button class="wk" aria-label="Previous week">‹</button><button disabled>${statsOffset ? 'Week of ' + dates[0].toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : 'This week'}</button>` +
+    (statsOffset ? '<button>This week</button>' : '') + `<button class="wk" aria-label="Next week" ${statsOffset >= 0 ? 'disabled' : ''}>›</button>`;
+  const btn = nav.querySelectorAll('button');
+  btn[0].onclick = () => { statsOffset--; renderBudget(); }; btn[btn.length - 1].onclick = () => { statsOffset++; renderBudget(); };
+  if (statsOffset) btn[2].onclick = () => { statsOffset = 0; renderBudget(); };
+
+  // Tiles. "Blocks done" compares with what was planned up to now, so a Monday morning isn't a failing grade.
+  const real = Object.entries(w.cats).filter(([k]) => k && k !== 'Sleep' && !cat(k).dashed);
+  const sofar = real.reduce((a, [, v]) => a + v.sofar, 0), done = real.reduce((a, [, v]) => a + Math.min(v.done, v.planned), 0);
+  const tot = k => w.cats[k]?.planned || 0, waking = Object.values(w.cats).reduce((a, v) => a + v.planned, 0) - tot('Sleep');
+  const tile = (v, label) => `<div class="kpi"><b>${v}</b><span>${label}</span></div>`;
+  $('kpis').innerHTML = tile(sofar ? Math.round(done / sofar * 100) + '%' : '–', 'of blocks done so far') +
+    tile(w.tasksDone.reduce((a, b) => a + b, 0), 'tasks done') +
+    tile(w.habitRate == null ? '–' : Math.round(w.habitRate * 100) + '%', 'of habits kept') +
+    tile(waking ? Math.round((tot('Offset') + tot('Spare')) / waking * 100) + '%' : '–', 'buffer in the plan');
+
+  // One bar per block type: the track is planned, the fill is done; tracked time is a number beside it.
+  const rows = Object.entries(w.cats).filter(([k, v]) => k !== 'Sleep' && !(k && cat(k).dashed) && (v.planned || v.tracked)).sort((a, b) => b[1].planned - a[1].planned);
+  const max = Math.max(1, ...rows.map(([, v]) => Math.max(v.planned, v.tracked)));
+  $('statsCats').innerHTML = rows.map(([k, v]) => {
+    const name = k ? cat(k).label : 'Other', tip = `${name}: ${hrs(v.planned)} planned, ${hrs(Math.min(v.done, v.planned))} done` + (v.tracked >= 1 ? `, ${hrs(v.tracked)} tracked` : '');
+    return `<li style="${k ? colorVars(k) : ''}" title="${esc(tip)}"><span class="nm">${esc(name)}</span>` +
+      `<span class="num">${v.planned ? hrs(Math.min(v.done, v.planned)) + ' of ' + hrs(v.planned) : ''}${v.tracked >= 1 ? `<small>${hrs(v.tracked)} tracked</small>` : ''}</span>` +
+      `<span class="track" ${v.planned ? '' : 'hidden'} style="width:${v.planned / max * 100}%"><i style="width:${v.planned ? Math.min(v.done, v.planned) / v.planned * 100 : 0}%"></i></span></li>`;
+  }).join('') || '<li class="muted">Nothing planned this week.</li>';
+
+  // Tasks done per day: seven bars, the number on top.
+  const tmax = Math.max(1, ...w.tasksDone), today = isoDate(new Date());
+  $('statsTasks').innerHTML = w.tasksDone.map((n, i) => `<div class="vb${isoDate(dates[i]) === today ? ' today' : ''}" role="listitem" title="${dayLabel(isoDate(dates[i]))}: ${n} done">` +
+    `<b>${n || ''}</b><i style="height:${n / tmax * 110}px"></i><span>${DAYS[dates[i].getDay()].key.slice(0, 2)}</span></div>`).join('');
 }
 
 /* ---------- Settings (original fields + notifications, block types, data) ---------- */

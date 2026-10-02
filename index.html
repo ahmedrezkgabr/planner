@@ -115,13 +115,12 @@
   </section>
 
   <section id="view-budget" hidden>
-    <table>
-      <thead><tr><th>Category</th><th>Suggested h/wk</th><th>Planned h/wk</th><th>Diff</th></tr></thead>
-      <tbody id="budgetBody"></tbody>
-      <tfoot><tr><td>Total</td><td id="bT1"></td><td id="bT2"></td><td></td></tr></tfoot>
-    </table>
+    <div class="days" id="statsNav"></div>
     <div class="kpis" id="kpis"></div>
-    <p class="hint">Aim for hard buffer of at least 10% and total slack around 20–30%. Below that the plan is brittle; above 40% it isn't a plan. The startup and learning lengths in Settings are the dials.</p>
+    <h3 class="sh">Hours by block type <span class="muted">done of planned</span></h3>
+    <ul class="hbars" id="statsCats"></ul>
+    <h3 class="sh">Tasks done</h3>
+    <div class="vbars" id="statsTasks" role="list"></div>
   </section>
 
   <section id="view-settings" hidden>

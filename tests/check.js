@@ -49,6 +49,28 @@ run(`plan.settings.bedWork = '23:00'`);
   run(`delete plan.settings.prayerAuto; delete plan.settings.location`);
 }
 
+// Stats: a custom block on top of the chain is not counted twice; week totals add up.
+{
+  run('plan = emptyPlan()');
+  const sun = "parseISO('2026-09-27')", sum = o => Object.values(o).reduce((a, b) => a + b, 0);
+  const base = run(`plannedByCat(buildDay(plan, ${sun}))`);
+  run(`plan.customBlocks.push({ id:'c-call', name:'Client call', cat:'Work', start:toMin('17:00'), end:toMin('17:30'), days:[0] })`);
+  const withCall = run(`plannedByCat(buildDay(plan, ${sun}))`);
+  assert.equal(sum(withCall), sum(base), 'the day has the same number of minutes');
+  assert.equal(withCall.Gym, base.Gym - 30); assert.equal(withCall.Work, base.Work + 30);
+  assert.equal(sum(run(`plannedByCat(buildDay(plan, ${sun}), toMin('12:00'))`)), 330, 'cut off at noon: 06:30 wake to 12:00 (the night belongs to the day before)');
+  ctx.wk = { blockDone:{ '2026-09-27':['Sun:gym'] }, habits:[{ id:'h', name:'Read', days:[0,1,2,3,4,5,6], createdAt:'2026-09-01T00:00:00Z' }],
+             habitLog:{ 'h|2026-09-27':true }, tasks:[{ ...run(`newTask({ title:'x' })`), status:'Completed', completedAt:'2026-09-28T09:00:00.000Z' }],
+             timeEntries:[{ id:'e', cat:'Gym', start:'2026-09-27T14:00:00.000Z', end:'2026-09-27T15:00:00.000Z' }] };
+  const w = run(`weekStats(plan, wk, Array.from({ length:7 }, (_, i) => addDays(parseISO('2026-09-27'), i)), ${at('2026-09-28', '12:00')})`);
+  assert.equal(w.cats.Gym.done, withCall.Gym + 30, 'done counts the ticked block as built (before the overlap)');
+  assert.equal(w.cats.Gym.tracked, 60);
+  assert.deepEqual(w.tasksDone, [0, 1, 0, 0, 0, 0, 0]);
+  assert.equal(w.habitRate, 1/2, 'Sun kept, Mon (today) not yet');
+  assert.ok(w.cats.Work.sofar < w.cats.Work.planned && w.cats.Work.sofar > 0);
+  run(`plan.customBlocks = []`);
+}
+
 // Reminders: materialize() rows for the push server.
 {
   ctx.ms = at('2026-09-27', '16:28');   // Sunday; gym 16:35, lead 10

@@ -52,3 +52,23 @@ function startTimer(entries, fields, nowMs = Date.now()){
   entries.push(e);
   return e;
 }
+
+/* ---------- week stats (the Stats view) ----------
+   Per block type: planned minutes (whole week, and so far), done (blocks ticked) and tracked (timers).
+   Plus tasks completed per day and the share of scheduled habits kept so far. */
+function weekStats(plan, st, dates, nowMs){
+  const cats = {}, add = (c, k, m) => { (cats[c] ||= { planned:0, sofar:0, done:0, tracked:0 })[k] += m; };
+  const isos = dates.map(isoDate), today = isoDate(new Date(nowMs)), nowMin = new Date(nowMs).getHours() * 60 + new Date(nowMs).getMinutes();
+  dates.forEach((d, i) => {
+    const day = buildDay(plan, d), iso = isos[i], done = new Set(st.blockDone[iso] || []);
+    const p = plannedByCat(day), s = plannedByCat(day, iso < today ? 2880 : iso === today ? nowMin : 0);
+    for (const c in p) add(c, 'planned', p[c]);
+    for (const c in s) add(c, 'sofar', s[c]);
+    for (const b of visible(day)) if (done.has(b.id)) add(b.cat, 'done', b.min);
+  });
+  for (const e of st.timeEntries) if (isos.includes(isoDate(new Date(e.start)))) add(e.cat || '', 'tracked', entryMin(e, nowMs));
+  const tasksDone = isos.map(iso => st.tasks.filter(t => isDone(t) && t.completedAt && isoDate(new Date(t.completedAt)) === iso).length);
+  let due = 0, kept = 0;
+  for (const h of st.habits) for (const iso of isos) if (iso <= today && isDue(h, iso)){ due++; if (st.habitLog[habitKey(h, iso)]) kept++; }
+  return { cats, tasksDone, habitRate:due ? kept / due : null };
+}

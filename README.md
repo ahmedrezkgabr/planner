@@ -16,7 +16,7 @@ sw.js, manifest.webmanifest, icons/   PWA: offline, installable, shows push remi
 supabase/functions/tick/   edge function: sends due reminders as Web Push (pg_cron, every minute)
 js/habits.js            habits (streaks, rates) and timers                               (no DOM)
 tests/check.js          logic self-check:  node tests/check.js
-tests/e2e.js            browser checks:    npm i --no-save playwright && node tests/e2e.js
+tests/e2e.js            browser checks (gate, saving, habits, timers, stats):    npm i --no-save playwright && node tests/e2e.js
 flexible_weekly_planner.html          your original, untouched (backup)
 flexible_weekly_planner.xlsx          your original, untouched
 flexible_weekly_planner_v2.xlsx       v2 export template (no longer read by the app)
@@ -104,6 +104,8 @@ The first time v3 opens at the same address as v2, it copies v2's data (settings
 - [ ] Tasks → Habits: add one for every day and one for Mondays only. On Now, only today's show; tick one and it stays ticked after a refresh. The row shows "n in a row" and a 12-week grid
 - [ ] Now → *Track time* on the current block: a timer pill appears on every tab and stops by itself when the block ends. ▶ on a task switches the timer to the task; after stopping, the task shows "25 min / 30 min est"
 - [ ] Start a timer on the phone: the laptop shows it running
+- [ ] Stats: four tiles (blocks done so far, tasks done, habits kept, buffer), a bar per block type (done inside planned, tracked beside it), tasks done per day; ‹ goes back a week
+- [ ] Publish a change: the open app shows "New version ready · Tap to update"; Settings shows the version
 - [ ] Download backup → Import backup: nothing is duplicated
 - [ ] Close and reopen the browser: everything is still there. Settings shows "IndexedDB, protected from clean-up"
 - [ ] Airplane mode on an installed phone app: it still opens and works

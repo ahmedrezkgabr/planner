@@ -200,10 +200,16 @@ const DAYS = [
   {key:'Fri', name:'Friday',    kind:'day off', build:(S,ov)=>friday(S,ov)},
   {key:'Sat', name:'Saturday',  kind:'day off', build:(S,ov)=>saturday(S,ov)},
 ];
-const BUDGET = [
-  ['Prayer',9.75],['Work',40],['Sleep',54.5],['Quran',3.5],['Azkar',7],['Gym',9],['Learning',3.25],['Reading',2.5],
-  ['Startup',9],['Meals',7.5],['Social',7],['Rest',3],['Leisure',2.5],['Planning',0.33],['Offset',null],['Spare',null]
-];
+// Minutes per block type in one day. Your own blocks paint over the chain they overlap, so nothing counts twice.
+// untilMin cuts the day off (minutes since its midnight): planned "so far" for today.
+function plannedByCat(blocks, untilMin = 2880){
+  const slot = new Array(Math.max(0, Math.min(2880, untilMin))).fill(null);
+  for (const b of visible(blocks).sort((x, y) => !!x.custom - !!y.custom))
+    for (let m = Math.max(0, b.start); m < Math.min(slot.length, b.end); m++) slot[m] = b.cat;
+  const out = {};
+  for (const c of slot) if (c) out[c] = (out[c] || 0) + 1;
+  return out;
+}
 
 /* ---------- dates ---------- */
 const isoDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;

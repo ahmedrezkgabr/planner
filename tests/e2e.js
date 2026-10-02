@@ -91,5 +91,18 @@ const signIn = async (p, uid = 'user-a') => { await p.evaluate(([k, v]) => local
     assert.deepEqual(p.errs, []); await p.context().close(); console.log('habits and timers ok');
   }
 
+  { // Stats: tiles, a bar per block type, tasks per day, week picker.
+    const p = await page(b); await p.clock.install({ time:new Date('2026-10-01T20:00:00+03:00') });
+    await p.goto(U); await signIn(p);
+    await p.evaluate(() => { blockDone[isoDate(new Date())] = visible(buildDay(plan, new Date())).filter(b => b.endAt < Date.now()).map(b => b.id);
+      tasks.push({ ...newTask({ title:'Done today' }), status:'Completed', completedAt:new Date().toISOString() }); changed('blockDone', 'tasks'); });
+    await p.click('nav [data-view=budget]');
+    assert.equal(await p.locator('#kpis .kpi').count(), 4);
+    assert.ok(await p.locator('#statsCats li').count() > 5, 'a row per block type');
+    assert.equal(await p.textContent('#statsTasks .vb.today b'), '1');
+    await p.click('#statsNav .wk >> nth=0'); assert.match(await p.textContent('#statsNav'), /Week of/);
+    assert.deepEqual(p.errs, []); await p.context().close(); console.log('stats ok');
+  }
+
   await b.close(); srv.close(); console.log('all browser checks passed');
 })().catch(e => { console.error(e); process.exit(1); });

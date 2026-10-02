@@ -228,8 +228,8 @@ Multi-user or sharing, Excel, two-way Google sync, Outlook, native apps, and edi
 2. **Push reminders:** `materialize`, the tick function, sw push, per-device subscribe. Delete the old reminder loop.
 3. **UX:** bottom nav, phone layout, gradient background, quick add, dark mode.
 4. **Prayer times:** location, auto/manual. Done.
-5. **Habits + timers.**
-6. **Stats** (replaces Budget).
+5. **Habits + timers.** Done.
+6. **Stats** (replaces Budget). Done.
 7. **Google Calendar.**
 8. README, keep-alive, Pages deploy.
 
