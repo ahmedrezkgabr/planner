@@ -20,9 +20,9 @@
 const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 
 // ui.js state key → record collection
-const COLLS = { settings:'settings', categories:'category', customBlocks:'customBlock', overrides:'override', tasks:'task', blockDone:'blockDone',
+const COLLS = { settings:'settings', categories:'category', template:'template', customBlocks:'customBlock', overrides:'override', tasks:'task', blockDone:'blockDone',
                 habits:'habit', habitLog:'habitLog', timeEntries:'timeEntry' };
-const PLAN_COLLS = new Set(['settings', 'category', 'customBlock', 'override']);   // changes here re-materialize reminders
+const PLAN_COLLS = new Set(['settings', 'category', 'template', 'customBlock', 'override']);   // changes here re-materialize reminders
 
 /* ---------- state <-> records (pure, tested) ---------- */
 // One ui.js state key → {recordId: data}
@@ -31,6 +31,7 @@ function toRecords(key, v){
   switch (key){
     case 'settings':     o.main = v; break;
     case 'categories':   Object.assign(o, v); break;
+    case 'template':     Object.assign(o, v); break;                              // one record per weekday: Sun … Sat
     case 'customBlocks': for (const c of v) o[c.id] = c; break;
     case 'tasks':        for (const t of v) o[t.id] = t; break;
     case 'habits':       for (const h of v) o[h.id] = h; break;
@@ -45,13 +46,14 @@ function toRecords(key, v){
   return o;
 }
 function toState(recs){
-  const s = { settings:{...DEFAULTS}, categories:structuredClone(DEFAULT_CATEGORIES), customBlocks:[], overrides:{weekly:{}, dated:{}}, tasks:[], blockDone:{}, habits:[], habitLog:{}, timeEntries:[] };
+  const s = { settings:{...DEFAULTS}, categories:structuredClone(DEFAULT_CATEGORIES), template:{}, customBlocks:[], overrides:{weekly:{}, dated:{}}, tasks:[], blockDone:{}, habits:[], habitLog:{}, timeEntries:[] };
   for (const r of recs){
     if (r.deleted || !r.data) continue;
     const d = structuredClone(r.data);   // a copy: the UI edits state in place, and save() diffs it against the stored record
     switch (r.collection){
       case 'settings':    s.settings = { ...DEFAULTS, ...d }; break;
       case 'category':    s.categories[r.id] = d; break;
+      case 'template':    s.template[r.id] = d; break;
       case 'customBlock': s.customBlocks.push(d); break;
       case 'task':        s.tasks.push(d); break;
       case 'habit':       s.habits.push(d); break;
@@ -65,6 +67,8 @@ function toState(recs){
       case 'blockDone': { const [iso, id] = r.id.split('|'); (s.blockDone[iso] ||= []).push(id); break; }
     }
   }
+  const def = DEFAULT_TEMPLATE(s.settings.gymSlot);
+  for (const { key } of DAYS) s.template[key] ||= def[key];   // a day with no record: the default week
   s.customBlocks.sort((a, b) => a.id.localeCompare(b.id));
   s.tasks.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
   s.habits.sort((a, b) => a.createdAt.localeCompare(b.createdAt));

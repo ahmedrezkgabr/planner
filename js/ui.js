@@ -33,7 +33,7 @@ const ICON_PLAY = svg('<path d="M8 5.5v13l10.5-6.5z"/>'), ICON_STOP = svg('<rect
 
 /* ---------- persistence (sync.js) ----------
    Synced: the plan, tasks and done ticks. Device-only: prefs. */
-const stateOf = () => ({ settings:plan.settings, categories:plan.categories, customBlocks:plan.customBlocks, overrides:plan.overrides, tasks, blockDone, habits, habitLog, timeEntries });
+const stateOf = () => ({ settings:plan.settings, categories:plan.categories, template:plan.template, customBlocks:plan.customBlocks, overrides:plan.overrides, tasks, blockDone, habits, habitLog, timeEntries });
 async function save(...keys){
   try {
     await Sync.save(keys, stateOf());
@@ -42,7 +42,7 @@ async function save(...keys){
   } catch (e) { toast('Could not save: ' + e.message); }
 }
 function load(st){
-  plan.settings = st.settings; plan.categories = st.categories; plan.customBlocks = st.customBlocks; plan.overrides = st.overrides;
+  plan.settings = st.settings; plan.categories = st.categories; plan.template = st.template; plan.customBlocks = st.customBlocks; plan.overrides = st.overrides;
   tasks = st.tasks; blockDone = st.blockDone; habits = st.habits; habitLog = st.habitLog; timeEntries = st.timeEntries;
 }
 function changed(...keys){ version++; save(...keys); renderAll(); }
@@ -631,8 +631,12 @@ function renderSettings(){
   });
   renderCats(); renderNotifyStatus(); renderBackup(); renderVersion();
 }
-function update(k, v){ plan.settings = {...plan.settings, [k]: v}; changed('settings'); renderSettings(); }
-$('reset').onclick = () => { if (!confirm('Reset prayer times, sleep, work and block lengths to the original plan? Tasks and block edits are kept.')) return; plan.settings = {...DEFAULTS, location:plan.settings.location, prayerAuto:plan.settings.prayerAuto}; changed('settings'); renderSettings(); };
+function update(k, v){
+  plan.settings = {...plan.settings, [k]: v};
+  if (k === 'gymSlot'){ plan.template = DEFAULT_TEMPLATE(v); changed('settings', 'template'); } else changed('settings');   // the template isn't editable yet: the toggle swaps the default week
+  renderSettings();
+}
+$('reset').onclick = () => { if (!confirm('Reset prayer times, sleep, work and block lengths to the original plan? Tasks and block edits are kept.')) return; plan.settings = {...DEFAULTS, location:plan.settings.location, prayerAuto:plan.settings.prayerAuto}; plan.template = DEFAULT_TEMPLATE(); changed('settings', 'template'); renderSettings(); };
 $('resetEdits').onclick = () => {
   if (!confirm('Remove every edit to the generated blocks (moves, renames, deletions) and delete your own blocks? Tasks linked to your own blocks stay, marked “Removed block”.')) return;
   plan.overrides = { weekly:{}, dated:{} }; plan.customBlocks = []; changed('overrides', 'customBlocks');
@@ -822,6 +826,13 @@ window.addEventListener('focus', () => tick(true));
   await Sync.open();
   const migrated = await Sync.migrateV2();
   load(Sync.state());
+  // Week template: a store with a plan but no template gets the default week once, so it syncs. Dated 1970 so any
+  // template already on the server wins over it; two devices doing this at once write the same thing.
+  const recs = [...Sync.recs.values()];
+  if (recs.some(r => r.collection === 'settings') && !recs.some(r => r.collection === 'template')){
+    await Sync.apply(Object.entries(toRecords('template', DEFAULT_TEMPLATE(plan.settings.gymSlot))).map(([id, data]) => ({ collection:'template', id, data, updated_at:'1970-01-01T00:00:00.000Z' })), true);
+    load(Sync.state());
+  }
   prefs = { ...prefs, ...(Sync.meta.prefs || {}) };
   if (migrated) toast('Brought over your data from the previous version.');
 

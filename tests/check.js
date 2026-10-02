@@ -3,6 +3,7 @@ process.env.TZ = 'Africa/Cairo';
 const fs = require('fs'), vm = require('vm'), path = require('path'), assert = require('assert');
 const ctx = vm.createContext({ console, structuredClone, Date, Math, isFinite, JSON, Number, String, Set, Map, Array, Object, setTimeout, clearTimeout });
 for (const f of ['schedule.js', 'tasks.js', 'habits.js', 'notify.js', 'sync.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8'), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, 'legacy-schedule.js'), 'utf8'), ctx);   // the old hardcoded week, for the equivalence test
 const run = code => vm.runInContext(code, ctx);
 const at = (iso, hhmm) => run(`atMin('${iso}', toMin('${hhmm}'))`);
 ctx.plan = run('emptyPlan()');
@@ -47,6 +48,53 @@ run(`plan.settings.bedWork = '23:00'`);
   const gym = run(`buildDay(plan, parseISO('2026-09-27')).find(b => b.id === 'Sun:gym')`);
   assert.equal(run(`fromMin(${gym.end})`), '18:35', 'gym ends 10 min before the calculated Maghrib');
   run(`delete plan.settings.prayerAuto; delete plan.settings.location`);
+}
+
+// Week template: the default template builds exactly the old hardcoded week, ids included.
+// 3 weeks across the October DST change; both gym slots; default and changed settings; template stored or not; weekly and dated overrides.
+{
+  const keys = ['id', 'name', 'cat', 'type', 'note', 'start', 'end', 'min', 'hidden', 'edited'];
+  const pick = bs => bs.filter(b => !b.custom).map(b => Object.fromEntries(keys.map(k => [k, b[k]])));
+  const changedSet = { bedWork:'00:30', gymMax:150, learnWork:60, prayerAuto:true, location:{ lat:31.04, lng:31.38 } };
+  const ov = { weekly:{ 'Sun:lunch-whenever-it-s-ready':{ start:run(`toMin('16:20')`) }, 'Tue:learning-software-ai-part-1':{ hidden:true },
+                        'Thu:gym':{ name:'Gym (short)', end:run(`toMin('18:00')`) }, 'Sat:offset':{ hidden:true } },
+               dated:{ '2026-10-19':{ 'Mon:reading-finance-management-history-part-1':{ start:run(`toMin('19:00')`) }, 'Mon:dinner-whenever-it-s-ready':{ hidden:true } },
+                       '2026-10-23':{ 'Fri:rest-nap':{ start:run(`toMin('14:30')`), note:'moved' }, 'Fri:sleep':{ start:run(`toMin('01:00')`) } } } };
+  let n = 0;
+  for (const gymSlot of ['afternoon', 'evening']) for (const extra of [{}, changedSet]) for (const stored of [false, true]) for (const overrides of [{ weekly:{}, dated:{} }, ov]){
+    ctx.P = { ...run('emptyPlan()'), overrides };
+    Object.assign(ctx.P.settings, { gymSlot }, extra);
+    if (stored) ctx.P.template = run('DEFAULT_TEMPLATE(P.settings.gymSlot)');
+    for (let i = 0; i < 21; i++){
+      ctx.d = run(`addDays(parseISO('2026-10-18'), ${i})`);
+      assert.deepEqual(pick(run('buildDay(P, d)')), pick(run('legacyBuild(P, d)')), `${gymSlot} ${JSON.stringify(extra)} stored:${stored} day ${i}`);
+      n++;
+    }
+  }
+  assert.equal(n, 336);
+  assert.equal(run(`DAYS.map(d => d.kind).join('|')`), 'workday|workday|workday|workday|workday, weekend starts tonight|day off|day off');
+}
+
+// Template rules on a hand-made day (default settings: wakeWork 06:30, dhuhr 11:50, asr 15:20, maghrib 18:05, learnWork 45).
+{
+  ctx.P = run('emptyPlan()');
+  ctx.P.template = { ...run('DEFAULT_TEMPLATE()'), Sun:{ label:'test', steps:[
+    { id:'a', name:'A', cat:'Prayer', kind:'Fixed', start:'wakeWork', rule:'len', len:30 },                         // 06:30-07:00
+    { id:'b', name:'B', cat:'Work', kind:'Fixed', rule:'until', at:{ anchor:'dhuhr', minus:[10] } },               // until 11:40
+    { id:'c', name:'C', cat:'Gym', kind:'Flex', rule:'cap', len:60, at:{ anchor:'maghrib' } },                     // 60 min, under the cap
+    { id:'d', name:'D', cat:'Gym', kind:'Flex', rule:'cap', len:999, at:{ anchor:'asr', minus:[{ ref:'offsetShort' }] } },   // capped at 15:10
+    { id:'e', name:'E', cat:'Offset', kind:'Spare', rule:'atLeast', len:20, at:{ anchor:'asr' } },                 // 15:10 → 15:30 (at least 20)
+    { id:'f', name:'F', cat:'Learning', kind:'Flex', rule:'rest', len:{ ref:'learnWork' }, of:'a' },               // 45 − 30 = 15
+    { id:'g', name:'G', cat:'Learning', kind:'Flex', rule:'rest', len:20, of:'b' },                                // b ran 280: 0
+    { id:'h', name:'H', cat:'Spare', kind:'Spare', rule:'until', at:{ anchor:'asr' } },                            // already past: 0
+    { id:'z', name:'Sleep', cat:'Sleep', kind:'Fixed', note:'n', rule:'until', at:{ anchor:'wakeWork', nextDay:true } },   // to 06:30 next day
+  ] } };
+  const r = run(`buildDay(P, parseISO('2026-10-18')).map(b => b.id + ' ' + fromMin(b.start) + '-' + fromMin(b.end) + ' ' + b.min)`);
+  assert.deepEqual(r, ['Sun:a 06:30-07:00 30', 'Sun:b 07:00-11:40 280', 'Sun:c 11:40-12:40 60', 'Sun:d 12:40-15:10 150', 'Sun:e 15:10-15:30 20',
+                       'Sun:f 15:30-15:45 15', 'Sun:g 15:45-15:45 0', 'Sun:h 15:45-15:45 0', 'Sun:z 15:45-06:30 885']);
+  assert.equal(run(`buildDay(P, parseISO('2026-10-19')).find(b => b.id === 'Mon:gym').start`), run(`buildDay(emptyPlan(), parseISO('2026-10-19')).find(b => b.id === 'Mon:gym').start`), 'other days: default');
+  ctx.P.overrides.weekly['Sun:a'] = { hidden:true };
+  assert.equal(run(`buildDay(P, parseISO('2026-10-18')).find(b => b.id === 'Sun:f').min`), 45, 'rest: a hidden step counts as 0');
 }
 
 // Stats: a custom block on top of the chain is not counted twice; week totals add up.
@@ -158,7 +206,7 @@ assert.deepEqual(run('tasksForNow([t, t2], status(plan, ms), ms).map(x => x.titl
 
 // Sync: state -> records -> state round-trips, including dated overrides on ids with colons.
 run(`plan.overrides.dated['2026-09-27'] = { 'Sun:gym': { start: toMin('17:00') } }`);
-ctx.state = { settings:ctx.plan.settings, categories:ctx.plan.categories, customBlocks:ctx.plan.customBlocks, overrides:ctx.plan.overrides,
+ctx.state = { settings:ctx.plan.settings, categories:ctx.plan.categories, template:run('DEFAULT_TEMPLATE("evening")'), customBlocks:ctx.plan.customBlocks, overrides:ctx.plan.overrides,
               tasks:[ctx.t, ctx.t2], blockDone:{ '2026-09-20':['Sun:fajr', 'Sun:gym'] },
               habits:[{ id:'hA', name:'Read', days:[1,3], createdAt:'2026-09-01T08:00:00.000Z' }], habitLog:{ 'hA|2026-09-21':true },
               timeEntries:[{ id:'e1', label:'Gym', cat:'Gym', blockKey:'Sun:gym|2026-09-20', start:'2026-09-20T14:00:00.000Z', end:null }] };
@@ -166,6 +214,11 @@ const recs = run(`Object.entries(COLLS).flatMap(([k, c]) => Object.entries(toRec
 assert.ok(recs.some(r => r.id === 'd:2026-09-27:Sun:gym'));
 ctx.recs = recs;
 assert.deepEqual(JSON.parse(JSON.stringify(run('toState(recs)'))), JSON.parse(JSON.stringify(ctx.state)));
+assert.equal(recs.filter(r => r.collection === 'template').map(r => r.id).join(), 'Sun,Mon,Tue,Wed,Thu,Fri,Sat');
+ctx.state.template.Sun.label = 'edited';
+assert.equal(run(`toState(Object.entries(COLLS).flatMap(([k, c]) => Object.entries(toRecords(k, state[k])).map(([id, data]) => ({ collection:c, id, data })))).template.Sun.label`), 'edited');
+ctx.state.template.Sun.label = 'workday';
+assert.deepEqual(JSON.parse(JSON.stringify(run(`toState(recs.filter(r => r.id !== 'Mon')).template.Mon`))), JSON.parse(JSON.stringify(run(`DEFAULT_TEMPLATE(plan.settings.gymSlot).Mon`))), 'a missing day is filled from the default');
 assert.deepEqual(run(`toState(recs.map(r => r.id === t.id ? { ...r, deleted:true, data:null } : r)).tasks.map(x => x.title)`), ['Warm-up'], 'tombstone drops the task');
 
 // Last write wins; a tie keeps the local copy.

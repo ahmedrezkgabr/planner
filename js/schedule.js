@@ -91,115 +91,138 @@ const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,
 const fixEnd = (start, end) => end < start ? end + 1440 : end;
 
 // ov = merged overrides for this date, keyed by block id: {name, cat, start, end, note, hidden}
+// defs: {id?, name, cat, type, note, start?, end:(start, mins)=>end}; mins = minutes so far by step id (for 'rest').
 function chain(dayKey, defs, ov = {}){
-  const out = [], seen = {}; let prev = null, p1 = 0;
+  const out = [], seen = {}, mins = {}; let prev = null;
   for (const d of defs){
     const s = slug(d.name); seen[s] = (seen[s]||0) + 1;
-    const id = dayKey + ':' + s + (seen[s] > 1 ? '-' + seen[s] : '');   // stable across weeks
+    const sid = d.id || s + (seen[s] > 1 ? '-' + seen[s] : ''), id = dayKey + ':' + sid;   // stable across weeks
     const o = ov[id] || {};
     let start = d.start !== undefined ? d.start : prev.end;
     if (o.start != null){ start = o.start; if (prev && start < prev.end - 720) start += 1440; }
-    let end = o.hidden ? start : o.end != null ? fixEnd(start, o.end) : d.end(start, p1);
+    let end = o.hidden ? start : o.end != null ? fixEnd(start, o.end) : d.end(start, mins);
     if (end < start) end = start;
     const b = { id, name:o.name || d.name, cat:o.cat || d.cat, type:d.type, note:o.note ?? (d.note || ''),
                 start, end, min:end-start, hidden:!!o.hidden, edited:!!ov[id] };
-    if (d.name.endsWith(', part 1')) p1 = b.min;   // part 2 tops up to the workday learning target
+    mins[sid] = b.min;
     out.push(b); prev = b;
   }
   return out;
 }
 
-/* ---------- the day templates (unchanged content) ---------- */
-function workday(key, S, ov, learnName, learnCat, bed, nextWake, startupNote){
-  const aft = S.gymSlot === 'afternoon';
-  return chain(key, [
-    {name:'Fajr', cat:'Prayer', type:'Fixed', note:'Folded into wake-up for now.', start:S.wakeWork, end:s=>s+S.prayer},
-    {name:'Morning azkar', cat:'Azkar', type:'Fixed', note:'Short before work. Finish the rest in your breakfast break, or wake 15 min earlier in Settings.', end:()=>S.workStart},
-    {name:'Work, morning', cat:'Work', type:'Fixed', note:'30-min breakfast break floats inside, whenever it\'s ready.', end:()=>S.dhuhr},
-    {name:'Dhuhr', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:'Work, afternoon', cat:'Work', type:'Fixed', end:()=>S.workEnd},
-    {name:'Offset: close the laptop, move around', cat:'Offset', type:'Spare', note:'If Asr falls during work (winter), pray then; this stays a pure break.', end:s=>Math.max(S.asr, s+S.offsetWork)},
-    {name:'Asr', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:'Evening azkar', cat:'Azkar', type:'Fixed', end:s=>s+S.azkar},
-    {name:'Lunch, whenever it\'s ready', cat:'Meals', type:'Flex', note:'Depends on family; everything after it slides.', end:s=>s+S.lunch},
-    aft ? {name:'Gym', cat:'Gym', type:'Flex', note:'Ends 10 min before Maghrib. Choose the evening slot in Settings for a longer session.', end:s=>Math.min(s+S.gymMax, S.maghrib-S.offsetShort)}
-        : {name:'Startup deep work', cat:'Startup', type:'Flex', note:startupNote, end:s=>Math.min(s+S.startupWork, S.maghrib-S.offsetShort)},
-    {name:aft ? 'Offset: shower, walk back' : 'Offset before Maghrib', cat:'Offset', type:'Spare', end:()=>S.maghrib},
-    {name:'Maghrib', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:'Quran study', cat:'Quran', type:'Fixed', end:s=>s+S.quran},
-    {name:learnName+', part 1', cat:learnCat, type:'Flex', note:'Split around Isha; the two parts add up to the workday target.', end:s=>Math.max(s, S.isha)},
-    {name:'Isha', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:learnName+', part 2', cat:learnCat, type:'Flex', end:(s,p1)=>s+Math.max(0, S.learnWork-p1)},
-    aft ? {name:'Startup deep work', cat:'Startup', type:'Flex', note:startupNote, end:s=>s+S.startupWork}
-        : {name:'Gym', cat:'Gym', type:'Flex', note:'Evening slot. Ends in time for dinner and wind-down.', end:s=>Math.min(s+S.gymMax, S[bed]-S.windDown-S.leisure-S.dinner)},
-    {name:'Dinner, whenever it\'s ready', cat:'Meals', type:'Flex', end:s=>s+S.dinner},
-    {name:'Leisure: reels, TV, anything', cat:'Leisure', type:'Flex', note:'Set a timer. Scrolling gets a home here so it stops leaking into everything else.', end:s=>s+S.leisure},
-    {name:'Spare: overflow, family, or nothing', cat:'Spare', type:'Spare', note:'Absorbs whatever ran over. Empty is fine.', end:s=>Math.max(s, S[bed]-S.windDown)},
-    {name:'Wind-down, screens off', cat:'Offset', type:'Fixed', end:s=>s+S.windDown},
-    {name:'Sleep', cat:'Sleep', type:'Fixed', note:'Target 7.5–8 h.', end:()=>S[nextWake]+1440},
-  ], ov);
+/* ---------- the week template ----------
+   plan.template = { Sun:{ label, steps:[…] }, …, Sat }. Each step is one block of the chain:
+   { id, name, cat, kind:'Fixed'|'Flex'|'Spare', note?, start?:'<time key>' (first step only), rule, len?, at?, of? }
+   rule  len     end = s + len
+         until   end = max(s, at)
+         cap     end = min(s + len, at)
+         atLeast end = max(at, s + len)
+         rest    end = s + max(0, len − minutes of step `of`)   (part 2 tops up part 1)
+   len: minutes or {ref:'<settings key>'}; at: {anchor:'<time key>', minus?:[minutes|{ref}], nextDay?:true}. */
+function compileStep(st, S){
+  const v = x => typeof x === 'number' ? x : Number(S[x.ref]) || 0, L = () => v(st.len);
+  const at = () => (st.at.minus || []).reduce((t, m) => t - v(m), S[st.at.anchor]) + (st.at.nextDay ? 1440 : 0);
+  const end = { len:s => s + L(), until:s => Math.max(s, at()), cap:s => Math.min(s + L(), at()), atLeast:s => Math.max(at(), s + L()),
+                rest:(s, mins) => s + Math.max(0, L() - (mins[st.of] || 0)) }[st.rule] || (s => s);
+  return { id:st.id, name:st.name, cat:st.cat, type:st.kind, note:st.note || '', start:st.start ? S[st.start] : undefined, end };
 }
-function friday(S, ov){
-  return chain('Fri', [
-    {name:'Fajr', cat:'Prayer', type:'Fixed', note:'No alarm; the wake time is a guess.', start:S.wakeOff, end:s=>s+S.prayer},
-    {name:'Morning azkar', cat:'Azkar', type:'Fixed', end:s=>s+S.azkar},
-    {name:'Breakfast, whenever it\'s ready', cat:'Meals', type:'Flex', end:s=>s+S.breakfast},
-    {name:'Reading: finance, management, history…', cat:'Reading', type:'Flex', note:'A book from outside your field.', end:s=>s+S.readFri},
-    {name:'Spare: family, chores, errands', cat:'Spare', type:'Spare', end:s=>Math.max(s, S.dhuhr-S.jumuahPrep)},
-    {name:'Jumu\'ah: go to the mosque, khutbah, prayer', cat:'Prayer', type:'Fixed', end:s=>s+S.jumuah},
-    {name:'Lunch with family', cat:'Meals', type:'Flex', end:s=>s+S.familyLunch},
-    {name:'Rest, nap', cat:'Rest', type:'Flex', end:s=>s+S.nap},
-    {name:'Spare', cat:'Spare', type:'Spare', end:s=>Math.max(s, S.asr)},
-    {name:'Asr', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:'Evening azkar', cat:'Azkar', type:'Fixed', end:s=>s+S.azkar},
-    {name:'Startup deep work, long block', cat:'Startup', type:'Flex', note:'Runs until just before Maghrib. One of your two big blocks of the week.', end:s=>Math.max(s, S.maghrib-S.offsetShort)},
-    {name:'Offset', cat:'Offset', type:'Spare', end:()=>S.maghrib},
-    {name:'Maghrib', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:'Quran study', cat:'Quran', type:'Fixed', end:s=>s+S.quran},
-    {name:'Family time', cat:'Social', type:'Flex', end:s=>Math.max(s, S.isha)},
-    {name:'Isha', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:'Friends, going out, family', cat:'Social', type:'Flex', note:'Nothing scheduled on purpose. Home and in the mood? Startup or a film, your call.', end:s=>Math.max(s, S.bedOff-S.windDown)},
-    {name:'Wind-down, screens off', cat:'Offset', type:'Fixed', end:s=>s+S.windDown},
-    {name:'Sleep', cat:'Sleep', type:'Fixed', note:'8.5 h.', end:()=>S.wakeOff+1440},
-  ], ov);
-}
-function saturday(S, ov){
-  return chain('Sat', [
-    {name:'Fajr', cat:'Prayer', type:'Fixed', start:S.wakeOff, end:s=>s+S.prayer},
-    {name:'Morning azkar', cat:'Azkar', type:'Fixed', end:s=>s+S.azkar},
-    {name:'Breakfast, whenever it\'s ready', cat:'Meals', type:'Flex', end:s=>s+S.breakfast},
-    {name:'Startup deep work, long block', cat:'Startup', type:'Flex', note:'Your longest block. Ends 10 min before Dhuhr at the latest.', end:s=>Math.min(s+S.startupSat, S.dhuhr-S.offsetShort)},
-    {name:'Offset', cat:'Offset', type:'Spare', end:()=>S.dhuhr},
-    {name:'Dhuhr', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:'Learning: software & AI', cat:'Learning', type:'Flex', end:s=>s+S.learnSat},
-    {name:'Lunch, whenever it\'s ready', cat:'Meals', type:'Flex', end:s=>s+S.lunch},
-    {name:'Rest, chores, errands', cat:'Rest', type:'Flex', note:'Laundry, groceries, a nap, whatever the week left behind.', end:s=>Math.max(s, S.asr)},
-    {name:'Asr', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:'Evening azkar', cat:'Azkar', type:'Fixed', end:s=>s+S.azkar},
-    {name:'Gym', cat:'Gym', type:'Flex', end:s=>Math.min(s+S.gymMax, S.maghrib-S.offsetShort)},
-    {name:'Offset: shower, walk back', cat:'Offset', type:'Spare', end:()=>S.maghrib},
-    {name:'Maghrib', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:'Quran study', cat:'Quran', type:'Fixed', end:s=>s+S.quran},
-    {name:'Weekly review: what slipped, plan next week', cat:'Planning', type:'Fixed', note:'Update prayer times in Settings, move blocks, note what to change. Re-export the calendar reminders.', end:s=>s+S.planning},
-    {name:'Spare', cat:'Spare', type:'Spare', end:s=>Math.max(s, S.isha)},
-    {name:'Isha', cat:'Prayer', type:'Fixed', end:s=>s+S.prayer},
-    {name:'Friends, family, leisure', cat:'Social', type:'Flex', note:'Work tomorrow: lights out at the workday time.', end:s=>Math.max(s, S.bedWork-S.windDown)},
-    {name:'Wind-down, screens off', cat:'Offset', type:'Fixed', end:s=>s+S.windDown},
-    {name:'Sleep', cat:'Sleep', type:'Fixed', note:'7.5 h, Sunday alarm.', end:()=>S.wakeWork+1440},
-  ], ov);
-}
-const SW = ['Learning: software & AI','Learning'], RD = ['Reading: finance, management, history…','Reading'];
+
 const STARTUP_NOTE = 'Phone in another room. One concrete deliverable per session.';
 const THU_NOTE = 'Going out with friends tonight? Skip this block guilt-free; the Fri/Sat long blocks cover it.';
-const DAYS = [
-  {key:'Sun', name:'Sunday',    kind:'workday', build:(S,ov)=>workday('Sun',S,ov,...SW,'bedWork','wakeWork',STARTUP_NOTE)},
-  {key:'Mon', name:'Monday',    kind:'workday', build:(S,ov)=>workday('Mon',S,ov,...RD,'bedWork','wakeWork',STARTUP_NOTE)},
-  {key:'Tue', name:'Tuesday',   kind:'workday', build:(S,ov)=>workday('Tue',S,ov,...SW,'bedWork','wakeWork',STARTUP_NOTE)},
-  {key:'Wed', name:'Wednesday', kind:'workday', build:(S,ov)=>workday('Wed',S,ov,...RD,'bedWork','wakeWork',STARTUP_NOTE)},
-  {key:'Thu', name:'Thursday',  kind:'workday, weekend starts tonight', build:(S,ov)=>workday('Thu',S,ov,...SW,'bedOff','wakeOff',THU_NOTE)},
-  {key:'Fri', name:'Friday',    kind:'day off', build:(S,ov)=>friday(S,ov)},
-  {key:'Sat', name:'Saturday',  kind:'day off', build:(S,ov)=>saturday(S,ov)},
-];
+// The original week as data. Ids are slug(name), with -2 for a repeat, so "Sun:gym" stays "Sun:gym".
+function DEFAULT_TEMPLATE(gymSlot = 'afternoon'){
+  const st = (name, cat, kind, r, note) => ({ name, cat, kind, ...(note ? { note } : {}), ...r });
+  const ref = k => typeof k === 'number' ? k : { ref:k };
+  const at = (anchor, minus) => ({ anchor, ...(minus.length ? { minus:minus.map(ref) } : {}) });
+  const len = k => ({ rule:'len', len:ref(k) }), until = (a, ...m) => ({ rule:'until', at:at(a, m) });
+  const cap = (k, a, ...m) => ({ rule:'cap', len:ref(k), at:at(a, m) }), atLeast = (k, a) => ({ rule:'atLeast', len:ref(k), at:at(a, []) });
+  const sleep = wake => ({ rule:'until', at:{ anchor:wake, nextDay:true } }), first = wake => ({ start:wake, ...len('prayer') });
+  const aft = gymSlot === 'afternoon';
+  const workday = (learn, lcat, bed, wake, snote) => [
+    st('Fajr', 'Prayer', 'Fixed', first('wakeWork'), 'Folded into wake-up for now.'),
+    st('Morning azkar', 'Azkar', 'Fixed', until('workStart'), 'Short before work. Finish the rest in your breakfast break, or wake 15 min earlier in Settings.'),
+    st('Work, morning', 'Work', 'Fixed', until('dhuhr'), '30-min breakfast break floats inside, whenever it\'s ready.'),
+    st('Dhuhr', 'Prayer', 'Fixed', len('prayer')),
+    st('Work, afternoon', 'Work', 'Fixed', until('workEnd')),
+    st('Offset: close the laptop, move around', 'Offset', 'Spare', atLeast('offsetWork', 'asr'), 'If Asr falls during work (winter), pray then; this stays a pure break.'),
+    st('Asr', 'Prayer', 'Fixed', len('prayer')),
+    st('Evening azkar', 'Azkar', 'Fixed', len('azkar')),
+    st('Lunch, whenever it\'s ready', 'Meals', 'Flex', len('lunch'), 'Depends on family; everything after it slides.'),
+    aft ? st('Gym', 'Gym', 'Flex', cap('gymMax', 'maghrib', 'offsetShort'), 'Ends 10 min before Maghrib. Choose the evening slot in Settings for a longer session.')
+        : st('Startup deep work', 'Startup', 'Flex', cap('startupWork', 'maghrib', 'offsetShort'), snote),
+    st(aft ? 'Offset: shower, walk back' : 'Offset before Maghrib', 'Offset', 'Spare', until('maghrib')),
+    st('Maghrib', 'Prayer', 'Fixed', len('prayer')),
+    st('Quran study', 'Quran', 'Fixed', len('quran')),
+    st(learn + ', part 1', lcat, 'Flex', until('isha'), 'Split around Isha; the two parts add up to the workday target.'),
+    st('Isha', 'Prayer', 'Fixed', len('prayer')),
+    st(learn + ', part 2', lcat, 'Flex', { rule:'rest', len:ref('learnWork'), of:slug(learn + ', part 1') }),
+    aft ? st('Startup deep work', 'Startup', 'Flex', len('startupWork'), snote)
+        : st('Gym', 'Gym', 'Flex', cap('gymMax', bed, 'windDown', 'leisure', 'dinner'), 'Evening slot. Ends in time for dinner and wind-down.'),
+    st('Dinner, whenever it\'s ready', 'Meals', 'Flex', len('dinner')),
+    st('Leisure: reels, TV, anything', 'Leisure', 'Flex', len('leisure'), 'Set a timer. Scrolling gets a home here so it stops leaking into everything else.'),
+    st('Spare: overflow, family, or nothing', 'Spare', 'Spare', until(bed, 'windDown'), 'Absorbs whatever ran over. Empty is fine.'),
+    st('Wind-down, screens off', 'Offset', 'Fixed', len('windDown')),
+    st('Sleep', 'Sleep', 'Fixed', sleep(wake), 'Target 7.5–8 h.'),
+  ];
+  const SW = ['Learning: software & AI', 'Learning'], RD = ['Reading: finance, management, history…', 'Reading'];
+  const t = {
+    Sun:{ label:'workday', steps:workday(...SW, 'bedWork', 'wakeWork', STARTUP_NOTE) },
+    Mon:{ label:'workday', steps:workday(...RD, 'bedWork', 'wakeWork', STARTUP_NOTE) },
+    Tue:{ label:'workday', steps:workday(...SW, 'bedWork', 'wakeWork', STARTUP_NOTE) },
+    Wed:{ label:'workday', steps:workday(...RD, 'bedWork', 'wakeWork', STARTUP_NOTE) },
+    Thu:{ label:'workday, weekend starts tonight', steps:workday(...SW, 'bedOff', 'wakeOff', THU_NOTE) },
+    Fri:{ label:'day off', steps:[
+      st('Fajr', 'Prayer', 'Fixed', first('wakeOff'), 'No alarm; the wake time is a guess.'),
+      st('Morning azkar', 'Azkar', 'Fixed', len('azkar')),
+      st('Breakfast, whenever it\'s ready', 'Meals', 'Flex', len('breakfast')),
+      st('Reading: finance, management, history…', 'Reading', 'Flex', len('readFri'), 'A book from outside your field.'),
+      st('Spare: family, chores, errands', 'Spare', 'Spare', until('dhuhr', 'jumuahPrep')),
+      st('Jumu\'ah: go to the mosque, khutbah, prayer', 'Prayer', 'Fixed', len('jumuah')),
+      st('Lunch with family', 'Meals', 'Flex', len('familyLunch')),
+      st('Rest, nap', 'Rest', 'Flex', len('nap')),
+      st('Spare', 'Spare', 'Spare', until('asr')),
+      st('Asr', 'Prayer', 'Fixed', len('prayer')),
+      st('Evening azkar', 'Azkar', 'Fixed', len('azkar')),
+      st('Startup deep work, long block', 'Startup', 'Flex', until('maghrib', 'offsetShort'), 'Runs until just before Maghrib. One of your two big blocks of the week.'),
+      st('Offset', 'Offset', 'Spare', until('maghrib')),
+      st('Maghrib', 'Prayer', 'Fixed', len('prayer')),
+      st('Quran study', 'Quran', 'Fixed', len('quran')),
+      st('Family time', 'Social', 'Flex', until('isha')),
+      st('Isha', 'Prayer', 'Fixed', len('prayer')),
+      st('Friends, going out, family', 'Social', 'Flex', until('bedOff', 'windDown'), 'Nothing scheduled on purpose. Home and in the mood? Startup or a film, your call.'),
+      st('Wind-down, screens off', 'Offset', 'Fixed', len('windDown')),
+      st('Sleep', 'Sleep', 'Fixed', sleep('wakeOff'), '8.5 h.'),
+    ] },
+    Sat:{ label:'day off', steps:[
+      st('Fajr', 'Prayer', 'Fixed', first('wakeOff')),
+      st('Morning azkar', 'Azkar', 'Fixed', len('azkar')),
+      st('Breakfast, whenever it\'s ready', 'Meals', 'Flex', len('breakfast')),
+      st('Startup deep work, long block', 'Startup', 'Flex', cap('startupSat', 'dhuhr', 'offsetShort'), 'Your longest block. Ends 10 min before Dhuhr at the latest.'),
+      st('Offset', 'Offset', 'Spare', until('dhuhr')),
+      st('Dhuhr', 'Prayer', 'Fixed', len('prayer')),
+      st('Learning: software & AI', 'Learning', 'Flex', len('learnSat')),
+      st('Lunch, whenever it\'s ready', 'Meals', 'Flex', len('lunch')),
+      st('Rest, chores, errands', 'Rest', 'Flex', until('asr'), 'Laundry, groceries, a nap, whatever the week left behind.'),
+      st('Asr', 'Prayer', 'Fixed', len('prayer')),
+      st('Evening azkar', 'Azkar', 'Fixed', len('azkar')),
+      st('Gym', 'Gym', 'Flex', cap('gymMax', 'maghrib', 'offsetShort')),
+      st('Offset: shower, walk back', 'Offset', 'Spare', until('maghrib')),
+      st('Maghrib', 'Prayer', 'Fixed', len('prayer')),
+      st('Quran study', 'Quran', 'Fixed', len('quran')),
+      st('Weekly review: what slipped, plan next week', 'Planning', 'Fixed', len('planning'), 'Update prayer times in Settings, move blocks, note what to change. Re-export the calendar reminders.'),
+      st('Spare', 'Spare', 'Spare', until('isha')),
+      st('Isha', 'Prayer', 'Fixed', len('prayer')),
+      st('Friends, family, leisure', 'Social', 'Flex', until('bedWork', 'windDown'), 'Work tomorrow: lights out at the workday time.'),
+      st('Wind-down, screens off', 'Offset', 'Fixed', len('windDown')),
+      st('Sleep', 'Sleep', 'Fixed', sleep('wakeWork'), '7.5 h, Sunday alarm.'),
+    ] },
+  };
+  for (const d of Object.values(t)){ const seen = {}; for (const s of d.steps){ const k = slug(s.name); seen[k] = (seen[k] || 0) + 1; s.id = k + (seen[k] > 1 ? '-' + seen[k] : ''); } }
+  return t;
+}
+// kind: the day's label in the default week (labels can't be edited yet).
+const DAYS = Object.entries({ Sun:'Sunday', Mon:'Monday', Tue:'Tuesday', Wed:'Wednesday', Thu:'Thursday', Fri:'Friday', Sat:'Saturday' })
+  .map(([key, name]) => ({ key, name, kind:DEFAULT_TEMPLATE()[key].label }));
 // Minutes per block type in one day. Your own blocks paint over the chain they overlap, so nothing counts twice.
 // untilMin cuts the day off (minutes since its midnight): planned "so far" for today.
 function plannedByCat(blocks, untilMin = 2880){
@@ -219,7 +242,8 @@ const addDays = (d, k) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 
 const atMin = (iso, min) => { const d = parseISO(iso); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, min).getTime(); };
 
 /* ---------- plan → concrete blocks for a date ----------
-   plan = { settings, categories, customBlocks:[], overrides:{weekly:{}, dated:{iso:{}}} } */
+   plan = { settings, categories, template?, customBlocks:[], overrides:{weekly:{}, dated:{iso:{}}} }
+   No template (tests, before the first load): the default week for the gym slot. */
 function emptyPlan(){ return { settings:{...DEFAULTS}, categories:structuredClone(DEFAULT_CATEGORIES), customBlocks:[], overrides:{weekly:{}, dated:{}} }; }
 function overridesFor(plan, iso){
   const w = plan.overrides.weekly, d = plan.overrides.dated[iso] || {}, out = {};
@@ -231,7 +255,8 @@ function customOn(c, iso, dow){ return c.date ? c.date === iso : (c.days || []).
 // All blocks of one date, hidden ones included (flagged). Each block gets date, startAt, endAt.
 function buildDay(plan, date){
   const dow = date.getDay(), iso = isoDate(date), ov = overridesFor(plan, iso);
-  const blocks = DAYS[dow].build(norm(daySettings(plan, date)), ov);
+  const key = DAYS[dow].key, S = norm(daySettings(plan, date));
+  const blocks = chain(key, (plan.template?.[key] || DEFAULT_TEMPLATE(plan.settings.gymSlot)[key]).steps.map(st => compileStep(st, S)), ov);
   for (const c of plan.customBlocks){
     if (!customOn(c, iso, dow)) continue;
     const o = ov[c.id] || {}, start = o.start ?? c.start, end = o.hidden ? start : fixEnd(start, o.end ?? c.end);
